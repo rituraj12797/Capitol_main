@@ -63,7 +63,7 @@ namespace internal_lib {
 
 			if(((next_index_to_write + 1)&(capacity_mask)) == lazy_read) { // we arrived where last time read was found 
 				// now found where exactlky is this read 
-				if((next_index_to_write + 1)&(capacity_mask) == next_index_to_read) {
+				if(((next_index_to_write + 1)&(capacity_mask)) == next_index_to_read) {
 					return nullptr;
 				}
 				lazy_read = next_index_to_read;
