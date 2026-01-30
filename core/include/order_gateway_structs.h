@@ -72,7 +72,7 @@ namespace internal_lib {
         int price;              // 4 byte execution or limit price
         OrderStatus status;     // 1 byte 
         char side;              // 1 byte
-        char pad_internal[2];   // 2 byte (align this block to 8)
+        short traderId;   // 2 byte 
 
         // 8 bytes
         char pad_final[8];      //  padding to reach 32 bytes
