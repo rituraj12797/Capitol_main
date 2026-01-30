@@ -35,7 +35,7 @@
 
 
 
-8. 
+8. SPSC Ring buffers are wait free, 
 
 
 
