@@ -9,9 +9,14 @@
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
 
+
+
+namespace internal_lib {
+
 template<typename T>
 class MemPool {
 private:
+    
     struct ObjectBlock {
         T object;
         // keeping this flag just for safety, but we wont check it in prod
@@ -89,7 +94,7 @@ public:
         free_indices.push_back(index);
     }
 };
-
+}
 
 /*
  ===============================================================================
@@ -143,5 +148,7 @@ public:
 
     Once the high water mark reaches end, then we wont be able to use it and till then due to some deallocation (which probably will happen) free list will have free entries, 
     why use stack here and why not queue ?? == >the last index which was fred, migh be sitting in cache so it's betetr to retrieve that instead of calling the last entry, which is least likely to be in cache.
+    
 
+    thAT too we haven't really used a stack but simulated one using vectors for speed.
 */
