@@ -3,7 +3,7 @@
 // 1. The system_ack struct ===> this is ths structure in which matching engine sends acknowledgements
 // 2. The user_ack struct   ===> this is the structure in which the usr expects acknowledgements
 // 3. user_order_struct ===> structure in whihc we receive the order request from the usser, 
-// 4. system_order_struct ===> this structure in which teh order request expected by matching engine.
+// 4. system_order_struct ===> this structure in which the order request expected by matching engine.
 #pragma once
 
 namespace internal_lib {
