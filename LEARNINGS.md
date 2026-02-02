@@ -40,6 +40,7 @@
 
 
 
+9. A intruisive doubly linked list whihc could be cache friendly   (does not uses pointers) -- implemented using vector, supports contant time Deletion and addition, Used in LOB to do fast insertions and deletion of Orders.
 
 
 
