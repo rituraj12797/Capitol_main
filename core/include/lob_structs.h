@@ -8,7 +8,7 @@ namespace internal_lib {
 
 	// this is the main belly of market which will store data in sorted order/you can say this is the structure whihc will be on Buy and Sell side to store and match orders
 	template <bool IsBuy>
-	class LOBMatrix {
+	class LimitedOrderBook {
 
 	private :
 
@@ -45,9 +45,9 @@ namespace internal_lib {
 	public :
 
 		// default constructor
-		LOBMatrix() = delete; // remove the other constructor like copy and all we will define this via a single constructor onlty snd that is 
+		LimitedOrderBook() = delete; // remove the other constructor like copy and all we will define this via a single constructor onlty snd that is 
 
-		LOBMatrix(size_t max_price_ticks, size_t pp_queue_size) {
+		LimitedOrderBook(size_t max_price_ticks, size_t max_entries_per_price) {
 			// max_price_ticks range and PerPrice queue size(the capacity of each row)
 
 			max_price_limit = max_price_ticks;
@@ -55,7 +55,7 @@ namespace internal_lib {
             store_.resize(max_price_ticks + 1); // reserve the store
 
             for(auto& row : store_) {
-                row.reserve(pp_queue_size);
+                row.reserve(max_entries_per_price);
             }
 
             
