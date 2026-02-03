@@ -23,6 +23,9 @@ namespace internal_lib {
     private:
         // forward declaration to define mempool
         struct Node;
+
+        //  This vector holds nodes, and the pointer in our B+ Tree is nothing but the location of these nodes, these nodes live inside the Mempool.
+
         using NodePool = MemPool<Node>;
         
         // static pool shared by all trees
