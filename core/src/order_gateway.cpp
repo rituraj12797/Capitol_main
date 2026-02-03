@@ -35,7 +35,7 @@ namespace internal_lib {
         public :
 
             OrderGateway() {
-                // initialize B+ Tree Pool
+                // initialize B+ Tree
                 internal_lib::SIMDBPlusTree<long long, int, 256>::init(100000);
                 
                 // Pre-allocate LUT
