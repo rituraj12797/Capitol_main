@@ -17,7 +17,7 @@ namespace internal_lib {
 
 		// 8 byte
 		int system_id; // unique id provided to this order by system   4 byte
-		int price; // we expect price ~ 32k only (use case)    4 byte
+		float price; // we expect price ~ 32k only (use case)    4 byte
 
 		// 8 byte
 		int quantity; // quantity of order 4 byte
@@ -39,7 +39,7 @@ namespace internal_lib {
 		long long order_id; // unique order is = created_at*100 + userid(0 to 99). thia makes it unique.
 		
 		// 8 Byte
-		int price; // we expect price ~ 32k only (use case)    4 byte
+		float price; // we expect price ~ 32k only (use case)    4 byte
 		int quantity; // quantity of order 4 byte
 
 		// 8 byte
