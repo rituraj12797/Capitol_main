@@ -182,6 +182,8 @@ namespace internal_lib {
         	// exit
             // if any aggressive match happens then this will return true else it will return false
 
+
+        	// IN AGGRESSIVE MATCHING DO ONE MORE THING IF 2 ORDERS MATCH, BE SURE TO CHECK IF THEIR TRADER_ID is not same 
             if (is_buy) {
                 // if order of type buy
                 // attack sell side 
@@ -326,3 +328,4 @@ namespace internal_lib {
 
 	}
 }
+

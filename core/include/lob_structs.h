@@ -68,6 +68,10 @@ namespace internal_lib {
 
 		}
 
+		*LOBOrder peekLOBEntry(systemId) noexcept {
+			return store_[LUT[systemId].first][LUT[systemId.second]];
+		}
+
 		void createOrder(LOBOrder& order) noexcept { // what i shapenning here is that this is being fetched from ring buffers, which is reading very fast, now if we do copying it into an object and then
 			// creating a temp object here and then using this copy to create pobject in matrix will cause un-necessary latency in the system ----> so we simply construct it in place using placement new operator
 
@@ -97,24 +101,16 @@ namespace internal_lib {
 
 		}
 
-		void updateOrder(LOBOrder& data) noexcept { // means this data already lives here just update its price/quantity
+		void updateOrderQuantity(LOBOrder& data) noexcept { // means this data already lives here just update quantity
+			// price based updates are handles by create and delete flows 
+
 
 			// find the order from LUT.
 			size_t price_row = LUT[data.system_id].first;
 			size_t order_col = LUT[data.system_id].second;
 
-			// priority ---> price based changes will take first then quantity based once 
 
-			// price based changes 
-			// ----> when price changes move it to that specific price_row. and update the price fiels 
-			if(data.price != store_[price_row][order_col].price) {
-
-				// first DELETE existing (Handles marking dead, decrementing count, and gliding if needed)
-        		deleteOrder(data.system_id);
-
-        		// now CREATE new (Handles pushing, updating LUT, incrementing count, and expanding optimum)
-        		createOrder(data);
-			} else if(data.quantity != store_[price_row][order_col].quantity) {
+			if(data.quantity != store_[price_row][order_col].quantity) {
 
 				//  quantity based changes
 				// ---> when quantity increase ----> mark the order dead and move it back to it's own vector and update the quantity field.
@@ -159,4 +155,30 @@ namespace internal_lib {
 		}
 
 	};
+
+	struct BroadcastElement {
+        int system_id;    // Reference to the order in the book
+        float price;         // Trade Price
+        int quantity;     // AMOUNT TRADED (if type=='T') or NEW BALANCE (if type=='U') or FULL SIZE (if type=='A')
+        char side;            // 'B'uy or 'S'ell
+        char type;            // 'A'dd, 'U'pdate, 'D'elete, 'T'rade
+    };
+
+    struct LOBAcknowledgement {
+        int system_id;    // Key to find the Client Order ID
+        
+        float price;         // Context: Price of the fill or the order
+        int quantity;     // Context: Traded Qty (if Match) or Remaining Qty (if Update/New)
+        
+        char side;            // 'B' or 'S'
+        char status;          // The Result Code (See below)
+
+        // STATUS CODES:
+    	// 'N' = New Order Accepted  (Qty = Initial Size)
+    	// 'U' = Update Accepted     (Qty = New Balance)
+    	// 'C' = Cancel Accepted     (Qty = 0)
+    	// 'T' = Trade / Fill        (Qty = Executed Amount)
+    	// 'R' = Rejected            (Qty = 0)
+    };
+
 }
