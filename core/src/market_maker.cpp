@@ -1,0 +1,1 @@
+// this component will read market data from a real stock/trade day and feed those orders to test our strategy against real world.
