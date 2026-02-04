@@ -72,3 +72,49 @@ Jumping (Index Skipping):   11421 us  | Sum: 100041
 Code for this could be find in the main.cpp of this commit 
 
 
+10. 
+
+In multiplexed wtiting systems ---> always Publish to the Future (Destinations) before you Release the Past (Source).
+
+Writing and commit before updating reading index is a good practice, since it ensures that data is actually produced
+
+
+```
+Why this	
+							BroadcastToMarketMaker->updateWrite();
+							BroadcastToAlphaEngine->updateWrite();
+							BroadcastQueue->updateRead();
+is better and 
+not this in the broadcaster --->
+							BroadcastQueue->updateRead();
+							BroadcastToMarketMaker->updateWrite();
+							BroadcastToAlphaEngine->updateWrite();
+
+
+```
+
+
+1. The Issues with "Read-First, Write-Second"
+Priority Inversion: You are signaling the "Producer" (Matching Engine) to do more work before signaling the "Consumer" (Alpha Engine) to start processing. In a Sniper, every nanosecond counts; you want the Consumer to know there is data the microsecond it's available.
+
+Bus Contention (Traffic Jams): By releasing the source slot first, you invite the Matching Engine to start writing new data immediately. This floods the CPU's memory bus with traffic. If you try to send your "Success" signal to the Alpha Engine in the middle of this flood, it can face "Micro-Jitter" or small delays at the hardware level.
+
+Lost Backpressure: You lose the ability to throttle the Matching Engine. If the Alpha Engine is slow, the Matching Engine keeps producing until the entire queue is full, causing your strategy to "lag" behind the real-time state of the market.
+
+2. How Atomics Help (The Checkpoint)
+Atomics act as Memory Barriers (or Fences). They prevent the CPU and the Compiler from being "too clever."
+
+Prevention of Reordering: When you update an atomic pointer, the CPU is forbidden from moving any memory writes (the data copy) from above that line to below it.
+
+Visibility Guarantee: Atomics ensure that when Core 2 (Broadcaster) changes a value, that change is "flushed" out of the local store buffer and becomes visible to Core 5 (Alpha Engine) in a deterministic order.
+
+3. The Benefits of "Write-First, Read-Second"
+A. In Terms of Latency (The Signal Lead)
+By calling updateWrite() first, you prioritize the Downstream component. You are giving the Alpha Engine the "Green Light" to start its calculations while the Broadcaster is still finishing its own bookkeeping. This shaves off those final few nanoseconds from the "Tick-to-Trade" loop.
+
+B. In Terms of Backpressure (The Pipeline Sync)
+This creates a "Lock-Step" mechanism. The Matching Engine can only take a new slot if the Broadcaster has successfully "handed off" the previous increment to both the Alpha Engine and the Market Maker.
+
+It prevents the Matching Engine from "Running Away" and filling the buffers with stale data.
+
+It ensures the Sniper is always working on the most recent possible data.
