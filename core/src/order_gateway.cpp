@@ -127,26 +127,28 @@ namespace internal_lib {
                     if(LIKELY(readAck != nullptr)) {
                         
                         // check who sent the order (sniper=0 or MM)
+                        // change in architecture -------> acknowledgements will only be created and sent for Sniper, market maker is just responsible for filling in market traffic.
                         LFQueue<UserAcknowledgement>* targetQueue;
-                        if(readAck->traderId == 0) {
-                            targetQueue = SniperAckQueue;
-                        } else {
-                            targetQueue = MMAckQueue;
-                        }
-
-                        UserAcknowledgement* writeAck = targetQueue->getNextWrite();
                         
-                        if(LIKELY(writeAck != nullptr)) {
-                            writeAck->order_id = SystemToOrderId(readAck->system_id);
-                            writeAck->timestamp = readAck->timestamp;
-                            writeAck->filled_quantity = readAck->filled_quantity;
-                            writeAck->price = readAck->price;
-                            writeAck->status = readAck->status;
-                            writeAck->side = readAck->side;
+                        if(readAck->traderId == 1) {
 
-                            targetQueue->updateWrite();
-                            LobAckQueue->updateRead();
-                        }
+                            targetQueue = SniperAckQueue; 
+                        
+                            UserAcknowledgement* writeAck = targetQueue->getNextWrite();
+                        
+                            if(LIKELY(writeAck != nullptr)) {
+                                writeAck->order_id = SystemToOrderId(readAck->system_id);
+                                writeAck->timestamp = readAck->timestamp;
+                                writeAck->filled_quantity = readAck->filled_quantity;
+                                writeAck->price = readAck->price;
+                                writeAck->status = readAck->status;
+                                writeAck->side = readAck->side;
+
+                                // always a good practice to commit first and then only update read unless you have a strong durability mechanism.
+                                targetQueue->updateWrite();
+                                LobAckQueue->updateRead();
+                            }
+                        } 
                     }
                 }
             }
