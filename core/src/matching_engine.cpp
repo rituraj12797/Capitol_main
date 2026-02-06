@@ -200,11 +200,19 @@ namespace internal_lib {
                     auto& level = SellOrderBook.getLevel(best_ask_idx);
                     if (level.empty()) break; 
 
+                    bool wash_trade_match = false;
+
+
                     for (auto& passive : level) {
                         // if matching ------> 
                         if (order.quantity == 0) break;
                         if (UNLIKELY(passive.quantity == 0)) continue; // Skip dead orders
 
+                        // can match now --->  check for wash trading ----> 
+                        if(UNLIKELY(passive.trader_id == order.trader_id)) {
+                            wash_trade_match = true;
+                            break; // get out we will settle this in LOB now
+                        }
                         
                         int trade_qty = (order.quantity < passive.quantity) ? order.quantity : passive.quantity;
                         double trade_price = passive.price;
@@ -227,6 +235,10 @@ namespace internal_lib {
                         if (passive.quantity == 0) {
                              SellOrderBook.deleteOrder(passive.system_id);
                         }
+                    }
+
+                    if(UNLIKELY(wash_trade_match)) {
+                        break; // get out from the loop
                     }
                 }
             } else {
