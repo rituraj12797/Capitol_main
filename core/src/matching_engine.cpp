@@ -208,7 +208,12 @@ namespace internal_lib {
                         // can match now --->  check for wash trading ----> 
                         if(UNLIKELY(passive.trader_id == order.trader_id)) {
                             wash_trade_match = true;
-                            break; // get out we will settle this in LOB now
+                            // kill the aggressive order immediately
+                            order.quantity = 0; 
+                    
+                            // send a specific 'cancelled' acknowledgement to the gateway as wash trade is detected
+                            acknowledgeBackToOrderGateway(order.system_id, order.price, 0, 'C', 'B');
+                            break; 
                         }
                         
                         int trade_qty = (order.quantity < passive.quantity) ? order.quantity : passive.quantity;
@@ -264,8 +269,13 @@ namespace internal_lib {
 
                         if(UNLIKELY(passive.trader_id == order.trader_id)) {
                             wash_trade_match = true;
-                            break; // get out we will settle this in LOB now
-                        }
+                            // kill the aggressive order immediately
+                            order.quantity = 0; 
+                    
+                            // send a specific 'cancelled' acknowledgement to the gateway as wash trade is detected
+                            acknowledgeBackToOrderGateway(order.system_id, order.price, 0, 'C', 'B');
+                            break; 
+                        }       
 
                         int trade_qty = (order.quantity < passive.quantity) ? order.quantity : passive.quantity;
                         double trade_price = passive.price;
