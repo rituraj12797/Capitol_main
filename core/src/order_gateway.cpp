@@ -75,25 +75,24 @@ namespace internal_lib {
 
             void run(
                      std::atomic<bool>& start_order_gateway,
-                     std::atomic<bool>& terminate_order_gateway,                     
+                     std::atomic<bool>& terminate_order_gateway                    
                      ) noexcept { 
 
                 // update local pointers
                 
 
                 // press the accelerator but hold the breaks untill we receive a signal from main to blast off!!!
-                while(!start_order_gateway.load()){
-                    if(!terminate_order_gateway.load()) return;
+                while(!start_order_gateway.load(std::memory_order_acquire)){
+                    if(!terminate_order_gateway.load(std::memory_order_acquire)) return;
                 }
 
                 // NOW !!!!!!!!!!!!
-                while(!terminate_order_gateway.load()){
-                    while(true) {
+                while(!terminate_order_gateway.load(std::memory_order_acquire)){
                     
-                    // take input from sniper
-                    UserOrder* readOrder = SniperOrderQueue->getNextRead(); 
+                        // take input from sniper
+                        UserOrder* readOrder = SniperOrderQueue->getNextRead(); 
 
-                    if(LIKELY(readOrder != nullptr)) {
+                        if(LIKELY(readOrder != nullptr)) {
                         
                         LOBOrder* writeSlot = LobOrderQueue->getNextWrite();
                         
@@ -110,12 +109,12 @@ namespace internal_lib {
                             LobOrderQueue->updateWrite();
                             SniperOrderQueue->updateRead();
                         }
-                    }
+                        }
 
-                    // take from market maker ---> we will only define a queue as of now for market maker but nothign will be there as of now 
-                    readOrder = MMOrderQueue->getNextRead();
+                        // take from market maker ---> we will only define a queue as of now for market maker but nothign will be there as of now 
+                        readOrder = MMOrderQueue->getNextRead();
                     
-                    if(LIKELY(readOrder != nullptr)) {
+                        if(LIKELY(readOrder != nullptr)) {
                         
                         LOBOrder* writeSlot = LobOrderQueue->getNextWrite();
                         
@@ -132,12 +131,12 @@ namespace internal_lib {
                             LobOrderQueue->updateWrite();
                             MMOrderQueue->updateRead();
                         }
-                    }
+                        }
 
-                    // process acknowledgements 
-                    LOBAcknowledgement* readAck = LobAckQueue->getNextRead();
+                        // process acknowledgements 
+                        LOBAcknowledgement* readAck = LobAckQueue->getNextRead();
                     
-                    if(LIKELY(readAck != nullptr)) {
+                        if(LIKELY(readAck != nullptr)) {
                         
                         // check who sent the order (sniper=0 or MM)
                         // change in architecture -------> acknowledgements will only be created and sent for Sniper, market maker is just responsible for filling in market traffic.
@@ -151,8 +150,7 @@ namespace internal_lib {
                         
                             if(LIKELY(writeAck != nullptr)) {
                                 writeAck->order_id = SystemToOrderId(readAck->system_id);
-                                writeAck->timestamp = readAck->timestamp;
-                                writeAck->filled_quantity = readAck->filled_quantity;
+                                writeAck->quantity = readAck->quantity;
                                 writeAck->price = readAck->price;
                                 writeAck->status = readAck->status;
                                 writeAck->side = readAck->side;
@@ -162,10 +160,11 @@ namespace internal_lib {
                                 LobAckQueue->updateRead();
                             }
                         // } 
-                    }
+                        }
+                    
+                }
 
-                }
-                }
+                return ;
 
                 
             }

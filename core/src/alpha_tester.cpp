@@ -13,7 +13,7 @@ namespace internal_lib {
 			internal_lib::LFQueue<internal_lib::UserOrder>* AlphaOrderQueue;
 			internal_lib::LFQueue<internal_lib::UserAcknowledgement>* UserAcknowledgementQueue;
 
-			internal_lib::LFQueue<internal_lib::LOBAcknowledgement>* BroadcastQueue;
+			internal_lib::LFQueue<internal_lib::BroadcastElement>* BroadcastQueue;
 			std::vector<internal_lib::UserOrder> TestStore;
 
 		public : 
@@ -21,7 +21,7 @@ namespace internal_lib {
 			AlphaServer(
 				internal_lib::LFQueue<internal_lib::UserOrder>* aoq,
 				internal_lib::LFQueue<internal_lib::UserAcknowledgement>* uaq,
-				internal_lib::LFQueue<internal_lib::LOBAcknowledgement>* bq
+				internal_lib::LFQueue<internal_lib::BroadcastElement>* bq
 				) 
 				:
 				AlphaOrderQueue(aoq),

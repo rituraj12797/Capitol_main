@@ -76,7 +76,8 @@ namespace internal_lib {
 
 			if( ((next_index_to_write + 1)&( capacity_mask)) == lazy_read) {
 				lazy_read = next_index_to_read;
-				// internal_lib::ASSERT( ((next_index_to_write + 1)&( capacity_mask)) != lazy_read ," Queue full thread must wait before further writing");
+				// updaste as of now but when full we will exit 
+				internal_lib::ASSERT( ((next_index_to_write + 1)&( capacity_mask)) != lazy_read ," Queue full thread must wait before further writing");
 			}
 
 			next_index_to_write = ((next_index_to_write + 1)&( capacity_mask));
@@ -99,7 +100,7 @@ namespace internal_lib {
 
 			if(next_index_to_read == lazy_write) {
 				lazy_write = next_index_to_write;
-				// internal_lib::ASSERT(next_index_to_read != lazy_write," Nothing to consume by thread ");
+				internal_lib::ASSERT(next_index_to_read != lazy_write," Nothing to consume by thread ");
 			}
 
 			next_index_to_read = ((next_index_to_read + 1)&( capacity_mask));
