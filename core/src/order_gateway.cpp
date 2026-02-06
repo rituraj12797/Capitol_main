@@ -25,7 +25,6 @@ namespace internal_lib {
 
             // Market Maker communication
             internal_lib::LFQueue<internal_lib::UserOrder>* MMOrderQueue; 
-            internal_lib::LFQueue<internal_lib::UserAcknowledgement>* MMAckQueue;
 
             internal_lib::SIMDBPlusTree<long long, int, 256> BPTree; 
             std::vector<long long> LUT; 
@@ -43,7 +42,9 @@ namespace internal_lib {
             }
 
             long long SystemToOrderId(int sysId) noexcept {
-                return LUT[sysId];
+                if(LIKELY(sysId < LUT.size()))return LUT[sysId];
+                return -1; // sysId > size return -1;
+                
             }
 
             // logic for getting system id
@@ -64,7 +65,6 @@ namespace internal_lib {
                      LFQueue<internal_lib::UserOrder>* SniperOrderQueue, 
                      LFQueue<internal_lib::UserAcknowledgement>* SniperAckQueue, 
                      LFQueue<internal_lib::UserOrder>* MMOrderQueue, 
-                     LFQueue<internal_lib::UserAcknowledgement>* MMAckQueue,
                      LFQueue<internal_lib::LOBOrder>* LobOrderQueue) noexcept { 
 
                 // update local pointers
@@ -72,7 +72,6 @@ namespace internal_lib {
                 this->SniperOrderQueue = SniperOrderQueue;
                 this->SniperAckQueue = SniperAckQueue;
                 this->MMOrderQueue = MMOrderQueue;
-                this->MMAckQueue = MMAckQueue;
                 this->LobOrderQueue = LobOrderQueue;
 
                 while(true) {
@@ -99,7 +98,7 @@ namespace internal_lib {
                         }
                     }
 
-                    // take from market maker
+                    // take from market maker ---> we will only define a queue as of now for market maker but nothign will be there as of now 
                     readOrder = MMOrderQueue->getNextRead();
                     
                     if(LIKELY(readOrder != nullptr)) {
@@ -129,8 +128,8 @@ namespace internal_lib {
                         // check who sent the order (sniper=0 or MM)
                         // change in architecture -------> acknowledgements will only be created and sent for Sniper, market maker is just responsible for filling in market traffic.
                         LFQueue<UserAcknowledgement>* targetQueue;
-                        
-                        if(readAck->traderId == 1) {
+
+                        // if(readAck->traderId == 1) { // we will publish for Alpha engine so we can copmment out this if 
 
                             targetQueue = SniperAckQueue; 
                         
@@ -148,8 +147,9 @@ namespace internal_lib {
                                 targetQueue->updateWrite();
                                 LobAckQueue->updateRead();
                             }
-                        } 
+                        // } 
                     }
+
                 }
             }
     };
