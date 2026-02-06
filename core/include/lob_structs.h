@@ -17,6 +17,7 @@ namespace internal_lib {
 		std::vector<std::vector<internal_lib::LOBOrder>> store_; 
 		std::vector<std::pair<int,int>> LUT; // look up table
 		std::vector<int> active_counts;
+		std::vector<internal_lib::LOBOrder> empty_price_level;
 		size_t max_price_limit;
 
 
@@ -69,8 +70,18 @@ namespace internal_lib {
 		}
 
 		*LOBOrder peekLOBEntry(systemId) noexcept {
-			return store_[LUT[systemId].first][LUT[systemId.second]];
+			if(UNLIKELY(LUT[systemId].first == -1 || LUT[systemId].second == -1)) return nullptr; // if it does not exists in the LOB return null ptr.
+			return store_[LUT[systemId].first][LUT[systemId].second];
 		}
+
+		std::vector<internal_lib::LOBOrder>& getLevel(size_t best_ask_idx) noexcept { // returning a reference to a row of LOBORders
+			if(best_ask_idx < store_.size()) {
+				return store_[best_ask_idx];
+			}
+			// return a zero sized LOBOrder array 
+			return empty_price_level;
+		}
+
 
 		void createOrder(LOBOrder& order) noexcept { // what i shapenning here is that this is being fetched from ring buffers, which is reading very fast, now if we do copying it into an object and then
 			// creating a temp object here and then using this copy to create pobject in matrix will cause un-necessary latency in the system ----> so we simply construct it in place using placement new operator
