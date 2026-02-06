@@ -76,6 +76,7 @@ namespace internal_lib {
 
 			if( ((next_index_to_write + 1)&( capacity_mask)) == lazy_read) {
 				lazy_read = next_index_to_read;
+				// updaste as of now but when full we will exit 
 				internal_lib::ASSERT( ((next_index_to_write + 1)&( capacity_mask)) != lazy_read ," Queue full thread must wait before further writing");
 			}
 

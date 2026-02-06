@@ -51,50 +51,42 @@ namespace internal_lib {
 	};
 
 	// OrderStatus Class
-	enum class OrderStatus : char {
-        ACCEPTED = 'A', // order rested
-        CANCELED = 'C', // order killed
-        UPDATED  = 'U', // order modified
-        FILLED   = 'F', // trade full
-        PARTIAL  = 'P', // trade partial
-        REJECTED = 'R'  // error
-    };
-
-	struct LOBAcknowledgement {
-        //  8 Bytes
-        long long timestamp;    // when did this happen inside LOB
-
-        // 8 bytes
-        int system_id;          // 4 byte internal id
-        int filled_quantity;    // 4 byte  executed or remaining quantity
-
-        // 8 bytes
-        int price;              // 4 byte execution or limit price
-        OrderStatus status;     // 1 byte 
-        char side;              // 1 byte
-        short traderId;   // 2 byte 
-
-        // 8 bytes
-        char pad_final[8];      //  padding to reach 32 bytes
-    };
 
     // majorly there are 4 types of Logs 
 
 
+    struct LOBAcknowledgement {
+        int system_id;    // Key to find the Client Order ID
+        
+        float price;         // Context: Price of the fill or the order
+        int quantity;     // Context: Traded Qty (if Match) or Remaining Qty (if Update/New)
+        
+        char side;            // 'B' or 'S'
+        char status;          // The Result Code (See below)
+
+        // STATUS CODES:
+    	// 'N' = New Order Accepted  (Qty = Initial Size)
+    	// 'U' = Update Accepted     (Qty = New Balance)
+    	// 'C' = Cancel Accepted     (Qty = 0)
+    	// 'T' = Trade / Fill        (Qty = Executed Amount)
+    	// 'R' = Rejected            (Qty = 0)
+    };
+
     struct UserAcknowledgement {
         //   8 bytes
         long long order_id;     // client ID (translated from system_id) uing look up table (LUT)
+        
+        float price;         // Context: Price of the fill or the order
+        int quantity;     // Context: Traded Qty (if Match) or Remaining Qty (if Update/New)
+        
+        char side;            // 'B' or 'S'
+        char status;          // The Result Code (See below)
 
-        //  8 bytes
-        long long timestamp;    // copied from LOBAcknowledgement
-
-        // 8 bytes
-        int filled_quantity;    // 4 byte
-        int price;              // 4 byte
-
-        //  8 bytes
-        OrderStatus status;     // 1 byte
-        char side;              // 1 byte
-        char pad[6];            // 6 byte -- Fill to 32 byte
+        // STATUS CODES:
+    	// 'N' = New Order Accepted  (Qty = Initial Size)
+    	// 'U' = Update Accepted     (Qty = New Balance)
+    	// 'C' = Cancel Accepted     (Qty = 0)
+    	// 'T' = Trade / Fill        (Qty = Executed Amount)
+    	// 'R' = Rejected         
     };
 }

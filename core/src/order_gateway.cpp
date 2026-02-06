@@ -25,7 +25,6 @@ namespace internal_lib {
 
             // Market Maker communication
             internal_lib::LFQueue<internal_lib::UserOrder>* MMOrderQueue; 
-            internal_lib::LFQueue<internal_lib::UserAcknowledgement>* MMAckQueue;
 
             internal_lib::SIMDBPlusTree<long long, int, 256> BPTree; 
             std::vector<long long> LUT; 
@@ -34,7 +33,19 @@ namespace internal_lib {
 
         public :
 
-            OrderGateway() {
+            OrderGateway(
+                     LFQueue<internal_lib::LOBAcknowledgement>* laq,  
+                     LFQueue<internal_lib::UserOrder>* soq, 
+                     LFQueue<internal_lib::UserAcknowledgement>* saq, 
+                     LFQueue<internal_lib::UserOrder>* mmoq, 
+                     LFQueue<internal_lib::LOBOrder>* loq) 
+                    : 
+                     LobAckQueue(laq),
+                     SniperOrderQueue(soq),
+                     SniperAckQueue(saq),
+                     MMOrderQueue(mmoq),
+                     LobOrderQueue(loq)
+                      {
                 // initialize B+ Tree
                 internal_lib::SIMDBPlusTree<long long, int, 256>::init(100000);
                 
@@ -43,7 +54,9 @@ namespace internal_lib {
             }
 
             long long SystemToOrderId(int sysId) noexcept {
-                return LUT[sysId];
+                if(LIKELY(sysId < LUT.size()))return LUT[sysId];
+                return -1; // sysId > size return -1;
+                
             }
 
             // logic for getting system id
@@ -60,27 +73,26 @@ namespace internal_lib {
                 }
             }
 
-            void run(LFQueue<internal_lib::LOBAcknowledgement>* LobAckQueue,  
-                     LFQueue<internal_lib::UserOrder>* SniperOrderQueue, 
-                     LFQueue<internal_lib::UserAcknowledgement>* SniperAckQueue, 
-                     LFQueue<internal_lib::UserOrder>* MMOrderQueue, 
-                     LFQueue<internal_lib::UserAcknowledgement>* MMAckQueue,
-                     LFQueue<internal_lib::LOBOrder>* LobOrderQueue) noexcept { 
+            void run(
+                     std::atomic<bool>& start_order_gateway,
+                     std::atomic<bool>& terminate_order_gateway                    
+                     ) noexcept { 
 
                 // update local pointers
-                this->LobAckQueue = LobAckQueue;
-                this->SniperOrderQueue = SniperOrderQueue;
-                this->SniperAckQueue = SniperAckQueue;
-                this->MMOrderQueue = MMOrderQueue;
-                this->MMAckQueue = MMAckQueue;
-                this->LobOrderQueue = LobOrderQueue;
+                
 
-                while(true) {
+                // press the accelerator but hold the breaks untill we receive a signal from main to blast off!!!
+                while(!start_order_gateway.load(std::memory_order_acquire)){
+                    if(!terminate_order_gateway.load(std::memory_order_acquire)) return;
+                }
+
+                // NOW !!!!!!!!!!!!
+                while(!terminate_order_gateway.load(std::memory_order_acquire)){
                     
-					// take input from sniper
-                    UserOrder* readOrder = SniperOrderQueue->getNextRead(); 
+                        // take input from sniper
+                        UserOrder* readOrder = SniperOrderQueue->getNextRead(); 
 
-                    if(LIKELY(readOrder != nullptr)) {
+                        if(LIKELY(readOrder != nullptr)) {
                         
                         LOBOrder* writeSlot = LobOrderQueue->getNextWrite();
                         
@@ -97,12 +109,12 @@ namespace internal_lib {
                             LobOrderQueue->updateWrite();
                             SniperOrderQueue->updateRead();
                         }
-                    }
+                        }
 
-                    // take from market maker
-                    readOrder = MMOrderQueue->getNextRead();
+                        // take from market maker ---> we will only define a queue as of now for market maker but nothign will be there as of now 
+                        readOrder = MMOrderQueue->getNextRead();
                     
-                    if(LIKELY(readOrder != nullptr)) {
+                        if(LIKELY(readOrder != nullptr)) {
                         
                         LOBOrder* writeSlot = LobOrderQueue->getNextWrite();
                         
@@ -119,36 +131,42 @@ namespace internal_lib {
                             LobOrderQueue->updateWrite();
                             MMOrderQueue->updateRead();
                         }
-                    }
+                        }
 
-					// process acknowledgements 
-                    LOBAcknowledgement* readAck = LobAckQueue->getNextRead();
+                        // process acknowledgements 
+                        LOBAcknowledgement* readAck = LobAckQueue->getNextRead();
                     
-                    if(LIKELY(readAck != nullptr)) {
+                        if(LIKELY(readAck != nullptr)) {
                         
                         // check who sent the order (sniper=0 or MM)
+                        // change in architecture -------> acknowledgements will only be created and sent for Sniper, market maker is just responsible for filling in market traffic.
                         LFQueue<UserAcknowledgement>* targetQueue;
-                        if(readAck->traderId == 0) {
-                            targetQueue = SniperAckQueue;
-                        } else {
-                            targetQueue = MMAckQueue;
-                        }
 
-                        UserAcknowledgement* writeAck = targetQueue->getNextWrite();
+                        // if(readAck->traderId == 1) { // we will publish for Alpha engine so we can copmment out this if 
+
+                            targetQueue = SniperAckQueue; 
                         
-                        if(LIKELY(writeAck != nullptr)) {
-                            writeAck->order_id = SystemToOrderId(readAck->system_id);
-                            writeAck->timestamp = readAck->timestamp;
-                            writeAck->filled_quantity = readAck->filled_quantity;
-                            writeAck->price = readAck->price;
-                            writeAck->status = readAck->status;
-                            writeAck->side = readAck->side;
+                            UserAcknowledgement* writeAck = targetQueue->getNextWrite();
+                        
+                            if(LIKELY(writeAck != nullptr)) {
+                                writeAck->order_id = SystemToOrderId(readAck->system_id);
+                                writeAck->quantity = readAck->quantity;
+                                writeAck->price = readAck->price;
+                                writeAck->status = readAck->status;
+                                writeAck->side = readAck->side;
 
-                            targetQueue->updateWrite();
-                            LobAckQueue->updateRead();
+                                // always a good practice to commit first and then only update read unless you have a strong durability mechanism.
+                                targetQueue->updateWrite();
+                                LobAckQueue->updateRead();
+                            }
+                        // } 
                         }
-                    }
+                    
                 }
+
+                return ;
+
+                
             }
     };
 }

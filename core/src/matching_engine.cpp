@@ -7,14 +7,14 @@
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
 
 namespace internal_lib {
-	class MatchingEngine {
+    class MatchingEngine {
 
 
-		// dependency injection here too====> comms/lfqueues will be passed as a reference here, they will be defined in main and referenced here.
+        // dependency injection here too====> comms/lfqueues will be passed as a reference here, they will be defined in main and referenced here.
 
-		private : 
+        private : 
 
-		internal_lib::LFQueue<internal_lib::LOBOrder>* LobOrderQueue; 
+        internal_lib::LFQueue<internal_lib::LOBOrder>* LobOrderQueue; 
         internal_lib::LFQueue<internal_lib::LOBAcknowledgement>* LobAckQueue; 
 
         internal_lib::LFQueue<internal_lib::BroadcastElement>* BroadcastQueue; // we keep it only incremental, as snapshotting is cmplex logic.
@@ -29,158 +29,188 @@ namespace internal_lib {
         MatchingEngine() = delete;
 
         MatchingEngine(
-        	size_t max_price_ticks,
-        	size_t max_entries_per_price,
-        	LFQueue<internal_lib::LOBOrder>* req_q,
-        	LFQueue<internal_lib::LOBOrder>* ack_q,
-        	LFQueue<internal_lib::LOBOrder>* brdcst_q
+            size_t max_price_ticks,
+            size_t max_entries_per_price,
+            LFQueue<internal_lib::LOBOrder>* req_q,
+            LFQueue<internal_lib::LOBAcknowledgement>* ack_q, // Corrected type to LOBAcknowledgement
+            LFQueue<internal_lib::BroadcastElement>* brdcst_q // Corrected type to BroadcastElement
         ) : LobOrderQueue(req_q),
-        	LobAckQueue(ack_q),
-        	BroadcastQueue(brdcst_q),
+            LobAckQueue(ack_q),
+            BroadcastQueue(brdcst_q),
 
-        	BuyOrderBook(max_price_ticks, max_entries_per_price),
-        	SellOrderBook(max_price_ticks, max_entries_per_price)
-        	{} // empty body 
+            BuyOrderBook(max_price_ticks, max_entries_per_price),
+            SellOrderBook(max_price_ticks, max_entries_per_price)
+            {} // empty body 
 
 
-        void matchingEngineLoop() {
+        void matchingEngineLoop(std::atomic<bool>& start_matching_engine, std::atomic<bool>& terminate_engine) {
 
-        	while(run) { // this will run the readOrder again and again ------> the architecture here is event based.
-        		readOrder();
-        	}
+            // keep lopping to achieve max CPU frequency untill the main.cpp sets start to true
+            while(!start_matching_engine.load(std::memory_order_acquire) ) { // this will run the readOrder again and again ------> the architecture here is event based.
+                if(terminate_engine.load(std::memory_order_acquire)) return; // keeps the cpu hogging at max freq.
+            }
+
+            while(!terminate_engine.load(std::memory_order_acquire)) {
+                readOrder(); // blast read infinitley untill engine stops.
+            }
 
         }
 
         void readOrder() noexcept { // this will read from queue
-        	// step 1 
-        	// read from LobOrderQueue
+            // step 1 
+            // read from LobOrderQueue
 
-        	LOBOrder* order = LobOrderQueue->getNextread(); // i would say I need to do somethign such that we only maintain a pointer and do not copy the order, since the read head wont move 
-        	// unless we call it to... we can reference it at will, and hence we needs not to maintain a copy we can just use it as reference as long we want.
+            LOBOrder* order = LobOrderQueue->getNextRead(); // i would say I need to do somethign such that we only maintain a pointer and do not copy the order, since the read head wont move 
+            // unless we call it to... we can reference it at will, and hence we needs not to maintain a copy we can just use it as reference as long we want.
 
 
-        	if(UNLIKELY(order == nullptr)) {
-        		// return.
-        		return ;
-        	} 
+            if(UNLIKELY(order == nullptr)) {
+                // return.
+                return ;
+            } 
 
-        	bool is_buy = ((order->order_type == 'b') ? true : false);
-        	if(order->req_type == 'c') {
-        		// call createOrderHandler
-        		createOrderHandler(*order, is_buy); // pass by reference 
-        	} else if(order->req_type == 'u') {
-        		// call updateOrderHandler
-        		updateHandler(*order, is_buy);
-        	} else {
-        		// call delete orderHandler
-        		deleteHandler(*order, is_buy);
-        	}
+            bool is_buy = ((order->order_type == 'b') ? true : false); // Assuming 'side' is the member based on previous context
+            if(order->req_type == 'c') {
+                // call createOrderHandler
+                createOrderHandler(*order, is_buy); // pass by reference 
+            } else if(order->req_type == 'u') {
+                // call updateOrderHandler
+                updateHandler(*order, is_buy);
+            } else {
+                // call delete orderHandler
+                deleteHandler(*order, is_buy);
+            }
 
-        	// now update the read. 
-        	LobOrderQueue->updateRead();
+            // now update the read. 
+            LobOrderQueue->updateRead();
 
         }
 
         void createOrderHandler(LOBOrder& order, bool is_buy) noexcept {
 
 
-        	// after aggressive check if quantity is still > 0 ---> (due to no or partial matching)
+            // after aggressive check if quantity is still > 0 ---> (due to no or partial matching)
 
-        	aggressiveMatch(order, is_buy);
+            aggressiveMatch(order, is_buy);
 
-        	// add to LOB and transfer this even to Logger
-        	if(order.quantity > 0) {
-        		if(is_buy) {
-        			BuyOrderBook.createOrder(order);
-        		} else {
-	         		SellOrderBook.createOrder(order);
-        		}
-        		// send acknowledge to Ordergateway. for creating 
-        		// write code here 
-        	}
+            // add to LOB and transfer this even to Logger
+            if(order.quantity > 0) {
+                if(is_buy) {
+                    BuyOrderBook.createOrder(order);
+                } else {
+                    SellOrderBook.createOrder(order);
+                }
+
+                // --- ADDED LOGIC ---
+                // Incremental Change for New Order Created in Book
+                sendIncrementalChange(order.system_id, order.price, order.quantity, 'N', is_buy ? 'B' : 'S');
+                
+                // Acknowledge Created only for Trader ID 1
+                if (order.trader_id == 1) {
+                    acknowledgeBackToOrderGateway(order.system_id, order.price, order.quantity, 'C', is_buy ? 'B' : 'S');
+                }
+                // write code here 
+            }
         }
 
         void updateHandler(LOBOrder& order, bool is_buy) noexcept {
 
-        	// if this makes a price updatethen we do delete and the call craetOrderhandler it Will automatically do aggressive checking fpor us no need to qrite separate code for that
-        	// but if quanrtity related changes then call the update function from lob_structs class
+            // if this makes a price updatethen we do delete and the call craetOrderhandler it Will automatically do aggressive checking fpor us no need to qrite separate code for that
+            // but if quanrtity related changes then call the update function from lob_structs class
 
-        	// to peek entry from the LOB.
-        	LOBOrder* order_entry_in_lob;
+            // to peek entry from the LOB.
+            LOBOrder* order_entry_in_lob;
 
-        	if(is_buy) {
-        		order_entry_in_lob = BuyOrderBook.peekLOBEntry(order.system_id);
-        	} else {
-        		order_entry_in_lob = SellOrderBook.peekLOBEntry(order.system_id);
-        	}
+            if(is_buy) {
+                order_entry_in_lob = BuyOrderBook.peekLOBEntry(order.system_id);
+            } else {
+                order_entry_in_lob = SellOrderBook.peekLOBEntry(order.system_id);
+            }
 
-        	if (UNLIKELY(order_entry_in_lob == nullptr)) return;  // safety check 
+            if (UNLIKELY(order_entry_in_lob == nullptr)) return;  // safety check 
 
-    		bool quantity_change = (order_entry_in_lob->quantity != order.quantity);
-    		bool price_change = (order_entry_in_lob->price != order.price);
+            bool quantity_change = (order_entry_in_lob->quantity != order.quantity);
+            bool price_change = (order_entry_in_lob->price != order.price);
 
 
-        	if(price_change) {
-        		// price based difference, do delete and update
-        		// since order_entry was a pointer we need to pass the reference in deleteHandler so use asterisk
-        		deleteHandler(*order_entry_in_lob, is_buy);
+            if(price_change) {
+                // price based difference, do delete and update
+                // since order_entry was a pointer we need to pass the reference in deleteHandler so use asterisk
+                deleteHandler(*order_entry_in_lob, is_buy);
 
-        		// by default we create new order so need not to update the orde separately
-        		createOrderHandler(order,is_buy);
+                // by default we create new order so need not to update the orde separately
+                createOrderHandler(order,is_buy);
 
-        		// won't send acknowledgement now, as delete and create form here would already have sent a succesfull one.
-        	} else if(quantity_change) {
-        		// if only quantity changes 
-        		if(is_buy) { 
-        			BuyOrderBook.updateOrderQuantity(order);
-        		} else {
-        			SellOrderBook.updateOrderQuantity(order);
-        		}
-        	}
+                // won't send acknowledgement now, as delete and create form here would already have sent a succesfull one.
+            } else if(quantity_change) {
+                // if only quantity changes 
+                if(is_buy) { 
+                    BuyOrderBook.updateOrderQuantity(order);
+                } else {
+                    SellOrderBook.updateOrderQuantity(order);
+                }
 
-        	// LOG
+                // --- ADDED LOGIC ---
+                // Send incremental for quantity change
+                sendIncrementalChange(order.system_id, order.price, order.quantity, 'U', is_buy ? 'B' : 'S');
+
+                // Acknowledge for Trader 1
+                if (order.trader_id == 1) {
+                    acknowledgeBackToOrderGateway(order.system_id, order.price, order.quantity, 'U', is_buy ? 'B' : 'S');
+                }
+            }
+
+            // LOG
         }
 
         void deleteHandler(LOBOrder& order, bool is_buy) noexcept {
-        	// call the LOB delete handler
+            // call the LOB delete handler
 
-        	if(is_buy) {
-        		BuyOrderBook.deleteOrder(order.system_id);
+            if(is_buy) {
+                BuyOrderBook.deleteOrder(order.system_id);
 
-        	} else {
-        		SellOrderBook.deleteOrder(order.system_id);
-        	}
-        	// send acknowledgement 
+            } else {
+                SellOrderBook.deleteOrder(order.system_id);
+            }
+
+            // --- ADDED LOGIC ---
+            // Send incremental for deletion
+            sendIncrementalChange(order.system_id, order.price, order.quantity, 'D', is_buy ? 'B' : 'S');
+
+            // Acknowledge Deleted for Trader 1
+            if (order.trader_id == 1) {
+                acknowledgeBackToOrderGateway(order.system_id, order.price, order.quantity, 'D', is_buy ? 'B' : 'S');
+            }
 
 
-        	// LOG
+            // LOG
         }
 
         void aggressiveMatch(LOBOrder& order, bool is_buy) noexcept { 
 
-        	// if order of type sell
-        	// attack buy side 
+            // if order of type sell
+            // attack buy side 
 
-        	// Loop untill orders are matching and modify LOB
+            // Loop untill orders are matching and modify LOB
 
-        	// if matching ------> 
+            // if matching ------> 
 
-        	// if full ---> aggressive bid/ask quantity == passive optimal ask/bid quantity ----> remove the passive entry modify LOB using member functions from lob_structs
+            // if full ---> aggressive bid/ask quantity == passive optimal ask/bid quantity ----> remove the passive entry modify LOB using member functions from lob_structs
 
-        	// if partial ---> 2 types
-        	// Loop here untill nothing more matches  ----> whenerv matches send acknowledge to orderGateWay
-        	// type 1 partial : aggressive bid/ask quantity < passive optimal ask/bid quantity ----> subtract the (aggressive quantity) from passive optimal order.
-        	// type 2 partial : aggressive bid/ask quantity > passive optimal ask/bid quantity ----> subtract the (passive quantity) from active order, and add the updated aggressive order with new quantity to LOB
+            // if partial ---> 2 types
+            // Loop here untill nothing more matches  ----> whenerv matches send acknowledge to orderGateWay
+            // type 1 partial : aggressive bid/ask quantity < passive optimal ask/bid quantity ----> subtract the (aggressive quantity) from passive optimal order.
+            // type 2 partial : aggressive bid/ask quantity > passive optimal ask/bid quantity ----> subtract the (passive quantity) from active order, and add the updated aggressive order with new quantity to LOB
 
 
-        	// not matching
-        	// add remaining order in LOB
-        	
-        	// exit
+            // not matching
+            // add remaining order in LOB
+            
+            // exit
             // if any aggressive match happens then this will return true else it will return false
 
 
-        	// IN AGGRESSIVE MATCHING DO ONE MORE THING IF 2 ORDERS MATCH, BE SURE TO CHECK IF THEIR TRADER_ID is not same 
+            // IN AGGRESSIVE MATCHING DO ONE MORE THING IF 2 ORDERS MATCH, BE SURE TO CHECK IF THEIR TRADER_ID is not same 
             if (is_buy) {
                 // if order of type buy
                 // attack sell side 
@@ -212,7 +242,10 @@ namespace internal_lib {
                             order.quantity = 0; 
                     
                             // send a specific 'cancelled' acknowledgement to the gateway as wash trade is detected
-                            acknowledgeBackToOrderGateway(order.system_id, order.price, 0, 'C', 'B');
+                            // ACK: Only for Trader 1
+                            if (order.trader_id == 1) {
+                                acknowledgeBackToOrderGateway(order.system_id, order.price, 0, 'K', 'B');
+                            }
                             break; 
                         }
                         
@@ -226,11 +259,15 @@ namespace internal_lib {
                         passive.quantity -= trade_qty;
 
                         // broadcast change
-                        sendIncrementalChange(passive.system_id, trade_price, trade_qty, 'T', 'S');
+                        // (As per your request, trade matching only sends Acks, no sendIncrementalChange here)
 
-                        // acknowledge back
-                        acknowledgeBackToOrderGateway(order.system_id, trade_price, trade_qty, 'T', 'B'); // Aggressor
-                        acknowledgeBackToOrderGateway(passive.system_id, trade_price, trade_qty, 'T', 'S'); // Passive
+                        // acknowledge back for TRADER ID 1 only
+                        if (order.trader_id == 1) {
+                            acknowledgeBackToOrderGateway(order.system_id, trade_price, trade_qty, 'T', 'B'); // Aggressor
+                        }
+                        if (passive.trader_id == 1) {
+                            acknowledgeBackToOrderGateway(passive.system_id, trade_price, trade_qty, 'T', 'S'); // Passive
+                        }
 
 
                         // if full ---> aggressive bid/ask quantity == passive optimal ask/bid quantity 
@@ -273,9 +310,12 @@ namespace internal_lib {
                             order.quantity = 0; 
                     
                             // send a specific 'cancelled' acknowledgement to the gateway as wash trade is detected
-                            acknowledgeBackToOrderGateway(order.system_id, order.price, 0, 'C', 'B');
+                            // ACK: Only for Trader 1
+                            if (order.trader_id == 1) {
+                                acknowledgeBackToOrderGateway(order.system_id, order.price, 0, 'K', 'S');
+                            }
                             break; 
-                        }       
+                        }        
 
                         int trade_qty = (order.quantity < passive.quantity) ? order.quantity : passive.quantity;
                         double trade_price = passive.price;
@@ -285,11 +325,15 @@ namespace internal_lib {
                         order.quantity -= trade_qty;
                         passive.quantity -= trade_qty;
 
-                        // whenerv matches send acknowledge to orderGateWay
-                        acknowledgeBackToOrderGateway(order.system_id, trade_price, trade_qty, 'T', 'S');
-                        acknowledgeBackToOrderGateway(passive.system_id, trade_price, trade_qty, 'T', 'B');
+                        // whenerv matches send acknowledge to orderGateWay for Trader ID 1 only
+                        if (order.trader_id == 1) {
+                            acknowledgeBackToOrderGateway(order.system_id, trade_price, trade_qty, 'T', 'S');
+                        }
+                        if (passive.trader_id == 1) {
+                            acknowledgeBackToOrderGateway(passive.system_id, trade_price, trade_qty, 'T', 'B');
+                        }
                         
-                        sendIncrementalChange(passive.system_id, trade_price, trade_qty, 'T', 'B');
+                        // (Trades skip IncrementalChange per your instruction)
 
                         // remove the passive entry modify LOB
                         if (passive.quantity == 0) {
@@ -329,12 +373,12 @@ namespace internal_lib {
                 write_obj = LobAckQueue->getNextWrite();
             }*/
             if(write_obj == nullptr) { 
-            	write_obj = LobAckQueue->getNextWrite();
+                write_obj = LobAckQueue->getNextWrite();
             }
 
             // now it is a writeable position 
             // the entry inside the adress pointed by write_obj be set as ack
-           *write_obj = ack; // write done
+            *write_obj = ack; // write done
 
             LobAckQueue->updateWrite(); // updates write position.
         }
@@ -375,9 +419,8 @@ namespace internal_lib {
         }
 
         void writeToLogger() noexcept {
-        	// wil get some event and write it to logger.
+            // wil get some event and write it to logger.
         }
 
-	}
-}
-
+    }; // End of Class
+} // End of Namespace

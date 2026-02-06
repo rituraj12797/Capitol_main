@@ -118,3 +118,25 @@ This creates a "Lock-Step" mechanism. The Matching Engine can only take a new sl
 It prevents the Matching Engine from "Running Away" and filling the buffers with stale data.
 
 It ensures the Sniper is always working on the most recent possible data.
+
+
+
+
+11. A way to make your server/engines fast is to---> implement a turbo wait(kind of )---> Hold the breaks but keep the acclerator at full---> hold the execution in a busy/spining while loop and release it as soon as start flag turns true --> to start from max CPU freq.
+
+
+
+
+
+12. Study more about memory ordering/ memory fencing in c++ and in general OS.
+
+In our drift race/ start pattern for components we use memory_order_release on producer(main.cpp) to ensure that all the instruction before storing a value into a atomic var is complete and will be visible ( else reordering would have done somehthing out of order).
+
+and on the consumer( Order Gateway/ matching engine ) memory_order_acquire is guaranteed that once it sees the start_signal as true, it will also see all the prep work the Producer did.
+
+so they will see the atomic variable start_... as set only when it is set truly(and not when due to instruction re ordering).
+
+BUT THIS HAPPENS BY DEFAULT THEN WHY WE CHOOSE TO DO IT ??
+by default atomic uses memory_order_global ---> which enforces this security across all cores to maintain atomic works in order----> but this is costly
+
+so we do this only but kind of at local level between producer and consumer thread.

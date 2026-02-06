@@ -1,3 +1,7 @@
+
+
+#include "order_gateway_structs.h"
+
  #pragma once
 
 // compiler hints for branch prediction
@@ -69,9 +73,9 @@ namespace internal_lib {
 
 		}
 
-		*LOBOrder peekLOBEntry(systemId) noexcept {
+		LOBOrder* peekLOBEntry(int systemId) noexcept {
 			if(UNLIKELY(LUT[systemId].first == -1 || LUT[systemId].second == -1)) return nullptr; // if it does not exists in the LOB return null ptr.
-			return store_[LUT[systemId].first][LUT[systemId].second];
+			return &(store_[LUT[systemId].first][LUT[systemId].second]);
 		}
 
 		std::vector<internal_lib::LOBOrder>& getLevel(size_t best_ask_idx) noexcept { // returning a reference to a row of LOBORders
@@ -109,7 +113,7 @@ namespace internal_lib {
 			active_counts[price_index]++;
 
 			// no need to glide here the check is done above already in this function
-
+			
 		}
 
 		void updateOrderQuantity(LOBOrder& data) noexcept { // means this data already lives here just update quantity
@@ -175,21 +179,5 @@ namespace internal_lib {
         char type;            // 'A'dd, 'U'pdate, 'D'elete, 'T'rade
     };
 
-    struct LOBAcknowledgement {
-        int system_id;    // Key to find the Client Order ID
-        
-        float price;         // Context: Price of the fill or the order
-        int quantity;     // Context: Traded Qty (if Match) or Remaining Qty (if Update/New)
-        
-        char side;            // 'B' or 'S'
-        char status;          // The Result Code (See below)
-
-        // STATUS CODES:
-    	// 'N' = New Order Accepted  (Qty = Initial Size)
-    	// 'U' = Update Accepted     (Qty = New Balance)
-    	// 'C' = Cancel Accepted     (Qty = 0)
-    	// 'T' = Trade / Fill        (Qty = Executed Amount)
-    	// 'R' = Rejected            (Qty = 0)
-    };
 
 }
