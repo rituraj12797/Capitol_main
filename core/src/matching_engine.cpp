@@ -88,12 +88,8 @@ namespace internal_lib {
 
         	aggressiveMatch(order, is_buy);
 
-
-
-
         	// add to LOB and transfer this even to Logger
         	if(order.quantity > 0) {
-
         		if(is_buy) {
         			BuyOrderBook.createOrder(order);
         		} else {
@@ -122,6 +118,7 @@ namespace internal_lib {
 
     		bool quantity_change = (order_entry_in_lob->quantity != order.quantity);
     		bool price_change = (order_entry_in_lob->price != order.price);
+
 
         	if(price_change) {
         		// price based difference, do delete and update
@@ -223,12 +220,13 @@ namespace internal_lib {
                         order.quantity -= trade_qty;
                         passive.quantity -= trade_qty;
 
-                        // whenerv matches send acknowledge to orderGateWay
+                        // broadcast change
+                        sendIncrementalChange(passive.system_id, trade_price, trade_qty, 'T', 'S');
+
+                        // acknowledge back
                         acknowledgeBackToOrderGateway(order.system_id, trade_price, trade_qty, 'T', 'B'); // Aggressor
                         acknowledgeBackToOrderGateway(passive.system_id, trade_price, trade_qty, 'T', 'S'); // Passive
 
-                        // Send to market data
-                        sendIncrementalChange(passive.system_id, trade_price, trade_qty, 'T', 'S');
 
                         // if full ---> aggressive bid/ask quantity == passive optimal ask/bid quantity 
                         // remove the passive entry modify LOB using member functions from lob_structs
@@ -292,7 +290,7 @@ namespace internal_lib {
                     if(UNLIKELY(wash_trade_match)) {
                         break; // get out from the loop
                     }
-                    
+
                 }
             }
             return ;
@@ -311,7 +309,16 @@ namespace internal_lib {
             // write to AckQueue.
             LOBAcknowledgement* write_obj = LobAckQueue->getNextWrite();
 
-            while(write_obj == nullptr) { // keep trying or yield
+            // I know this is risk we should keep somethign likea busy wait or a spoin wait here
+            // but since our queues is large (5x the crash size) this is high probvablity that it will not block,
+            // also we doing testing so need to remove the busy wait to a simple check. 
+
+
+            /*
+             while(write_obj == nullptr) { 
+                write_obj = LobAckQueue->getNextWrite();
+            }*/
+            if(write_obj == nullptr) { 
             	write_obj = LobAckQueue->getNextWrite();
             }
 
@@ -335,9 +342,19 @@ namespace internal_lib {
 
             BroadcastElement* write_obj = BroadcastQueue->getNextWrite();
 
-            while(write_obj == nullptr) {
-            	write_obj = BroadcastQueue->getNextWrite();
+           // I know this is risk we should keep somethign likea busy wait or a spoin wait here
+            // but since our queues is large (5x the crash size) this is high probvablity that it will not block,
+            // also we doing testing so need to remove the busy wait to a simple check. 
+
+
+            /*
+             while(write_obj == nullptr) { 
+                write_obj = LobAckQueue->getNextWrite();
+            }*/
+            if(write_obj == nullptr) { 
+                write_obj = BroadcastQueue->getNextWrite();
             }
+
 
             // can now write to this point 
             *write_obj = be;
