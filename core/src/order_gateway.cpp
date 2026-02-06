@@ -33,7 +33,19 @@ namespace internal_lib {
 
         public :
 
-            OrderGateway() {
+            OrderGateway(
+                     LFQueue<internal_lib::LOBAcknowledgement>* laq,  
+                     LFQueue<internal_lib::UserOrder>* soq, 
+                     LFQueue<internal_lib::UserAcknowledgement>* saq, 
+                     LFQueue<internal_lib::UserOrder>* mmoq, 
+                     LFQueue<internal_lib::LOBOrder>* loq) 
+                    : 
+                     LobAckQueue(laq),
+                     SniperOrderQueue(soq),
+                     SniperAckQueue(saq),
+                     MMOrderQueue(mmoq),
+                     LobOrderQueue(loq)
+                      {
                 // initialize B+ Tree
                 internal_lib::SIMDBPlusTree<long long, int, 256>::init(100000);
                 
@@ -61,22 +73,24 @@ namespace internal_lib {
                 }
             }
 
-            void run(LFQueue<internal_lib::LOBAcknowledgement>* LobAckQueue,  
-                     LFQueue<internal_lib::UserOrder>* SniperOrderQueue, 
-                     LFQueue<internal_lib::UserAcknowledgement>* SniperAckQueue, 
-                     LFQueue<internal_lib::UserOrder>* MMOrderQueue, 
-                     LFQueue<internal_lib::LOBOrder>* LobOrderQueue) noexcept { 
+            void run(
+                     std::atomic<bool>& start_order_gateway,
+                     std::atomic<bool>& terminate_order_gateway,                     
+                     ) noexcept { 
 
                 // update local pointers
-                this->LobAckQueue = LobAckQueue;
-                this->SniperOrderQueue = SniperOrderQueue;
-                this->SniperAckQueue = SniperAckQueue;
-                this->MMOrderQueue = MMOrderQueue;
-                this->LobOrderQueue = LobOrderQueue;
+                
 
-                while(true) {
+                // press the accelerator but hold the breaks untill we receive a signal from main to blast off!!!
+                while(!start_order_gateway.load()){
+                    if(!terminate_order_gateway.load()) return;
+                }
+
+                // NOW !!!!!!!!!!!!
+                while(!terminate_order_gateway.load()){
+                    while(true) {
                     
-					// take input from sniper
+                    // take input from sniper
                     UserOrder* readOrder = SniperOrderQueue->getNextRead(); 
 
                     if(LIKELY(readOrder != nullptr)) {
@@ -120,7 +134,7 @@ namespace internal_lib {
                         }
                     }
 
-					// process acknowledgements 
+                    // process acknowledgements 
                     LOBAcknowledgement* readAck = LobAckQueue->getNextRead();
                     
                     if(LIKELY(readAck != nullptr)) {
@@ -151,6 +165,9 @@ namespace internal_lib {
                     }
 
                 }
+                }
+
+                
             }
     };
 }

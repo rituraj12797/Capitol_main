@@ -43,11 +43,17 @@ namespace internal_lib {
         	{} // empty body 
 
 
-        void matchingEngineLoop() {
+        void matchingEngineLoop(std::atomic<bool>& start_matching_engine, std::atomic<bool>& terminate_engine) {
 
-        	while(run) { // this will run the readOrder again and again ------> the architecture here is event based.
-        		readOrder();
+
+            // keep lopping to achieve max CPU frequency untill the main.cpp sets start to true
+        	while(!store.load(std::memory_order_acquire) ) { // this will run the readOrder again and again ------> the architecture here is event based.
+        		if(terminate.load(std::memory_order_acquire)) return; // keeps the cpu hogging at max freq.
         	}
+
+            while(!terminate_engine.load(std::memory_order_acquire)) {
+                readOrder(); // blast read infinitley untill engine stops.
+            }
 
         }
 
