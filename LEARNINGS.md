@@ -140,3 +140,15 @@ BUT THIS HAPPENS BY DEFAULT THEN WHY WE CHOOSE TO DO IT ??
 by default atomic uses memory_order_global ---> which enforces this security across all cores to maintain atomic works in order----> but this is costly
 
 so we do this only but kind of at local level between producer and consumer thread.
+
+
+
+
+
+
+13. Throttling- to make the Alpha Slow during benchmarking 
+14. ingress throttling - to make the Order gateway add some processing latency so that it becomes the biottle nech and hence the LKFqueue inside the system now won;t be choked only sniper queue will be choked and system will be like a free glide highway .
+
+
+
+15. Adaptive Backpressure is a thing - warpstream is somnething related to it ?? 
