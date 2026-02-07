@@ -122,7 +122,7 @@ It ensures the Sniper is always working on the most recent possible data.
 
 
 
-11. A way to make your server/engines fast is to---> implement a turbo wait(kind of )---> Hold the breaks but keep the acclerator at full---> hold the execution in a busy/spining while loop and release it as soon as start flag turns true --> to start from max CPU freq.
+11. A way to make your server/engines fast is to---> implement a turbo wait(kind of )---> Hold the breaks but keep the acclerator at full---> hold the execution in a busy/spining while loop and release it as soon as start flag turns true --> to start from max CPU freq, these forces the CPU to go in C0/P0 states to fetch max performance(which obviously comes at a cost of higher voltage.)
 
 
 
