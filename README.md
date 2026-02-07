@@ -1,4 +1,10 @@
-Trade Matching Engine In C++.
+
+
+# CAPITOL : Trade Matching Engine In C++.
+
+![Capitol Logo](assets/Capitol.png)
+
+With dedicated market traffic simulator and a alpha testing server(to test strategies).
 
 benchmarks :
 
@@ -57,8 +63,6 @@ benchmarks :
 
 ====================================================================
 
-
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ CLOSING CAPITOL ~~~~~~~~~~~~~~~~~~ 
 ```
 
 Orders Processed Per Second ~ 2.3 Million orders/S at p50, 2 Million orders/S at p90.
