@@ -2,6 +2,9 @@
 
 #include "lf_queue.h"
 #include "lob_structs.h"
+#include "benchmark_utility.h"
+#include "x86intrin.h" // for defining rdtsc based counter ------> read time stamp based counter
+
 
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
@@ -24,6 +27,12 @@ namespace internal_lib {
         internal_lib::LimitedOrderBook<true> BuyOrderBook; // it has it's Own LUT
         internal_lib::LimitedOrderBook<false> SellOrderBook; // it has it's own LUT
 
+
+        std::vector<uint64_t> Queue_Wait_Time;
+        std::vector<uint64_t> Matching_Engine_Processing_Time;
+        std::vector<uint64_t> Tick_To_Trade_Time; 
+
+
         public : 
 
         MatchingEngine() = delete;
@@ -40,7 +49,12 @@ namespace internal_lib {
 
             BuyOrderBook(max_price_ticks, max_entries_per_price),
             SellOrderBook(max_price_ticks, max_entries_per_price)
-            {} // empty body 
+            {
+
+                Queue_Wait_Time.reserve(11000);
+                Matching_Engine_Processing_Time.reserve(11000);
+                Tick_To_Trade_Time.reserve(11000);
+            } // empty body 
 
 
         void matchingEngineLoop(std::atomic<bool>& start_matching_engine, std::atomic<bool>& terminate_engine) {
@@ -54,6 +68,24 @@ namespace internal_lib {
                 readOrder(); // blast read infinitley untill engine stops.
             }
 
+            // when all this ends we will print our benchmark 
+            // wait now 3 seconds to print benchmark
+            std::this_thread::sleep_for(std::chrono::seconds(3));
+
+            std::string qwt = "Queue Wait Time";
+            std::string mept = "Matching Engine Processing Time";
+            std::string tttt = "Tick To Trade Time";
+
+            internal_lib::showBench(tttt, Tick_To_Trade_Time);
+            internal_lib::showBench(mept, Matching_Engine_Processing_Time);
+            internal_lib::showBench(qwt, Queue_Wait_Time);
+
+
+
+
+
+            // when all this is done 
+
         }
 
         void readOrder() noexcept { // this will read from queue
@@ -63,35 +95,48 @@ namespace internal_lib {
             LOBOrder* order = LobOrderQueue->getNextRead(); // i would say I need to do somethign such that we only maintain a pointer and do not copy the order, since the read head wont move 
             // unless we call it to... we can reference it at will, and hence we needs not to maintain a copy we can just use it as reference as long we want.
 
-
             if(UNLIKELY(order == nullptr)) {
                 // return.
                 return ;
             } 
 
+            uint64_t arrived_at_lob = __rdtsc(); // cycle count when it got out of queue
+
+            Queue_Wait_Time.push_back(arrived_at_lob - order->out_cycle_count); // time it got out of queue - time ewhen this was pushed into the queue
+
+            uint64_t order_arrived_at = __rdtsc();
+            uint64_t order_processing_complete;
+
+            
+
             bool is_buy = ((order->order_type == 'b') ? true : false); // Assuming 'side' is the member based on previous context
             if(order->req_type == 'c') {
                 // call createOrderHandler
-                createOrderHandler(*order, is_buy); // pass by reference 
+                order_processing_complete = createOrderHandler(*order, is_buy); // pass by reference 
             } else if(order->req_type == 'u') {
                 // call updateOrderHandler
-                updateHandler(*order, is_buy);
+                order_processing_complete = updateHandler(*order, is_buy);
             } else {
                 // call delete orderHandler
-                deleteHandler(*order, is_buy);
+                order_processing_complete = deleteHandler(*order, is_buy);
             }
 
+            Matching_Engine_Processing_Time.push_back(order_processing_complete - order_arrived_at);
+            Tick_To_Trade_Time.push_back(order_processing_complete - order->arrived_cycle_count);
+
+            // total time this order spent inside = order_processiung_complete - order->arrived_at ===> the meoment it got popped out at queue ---. the meoment it is done processing
             // now update the read. 
             LobOrderQueue->updateRead();
 
         }
 
-        void createOrderHandler(LOBOrder& order, bool is_buy) noexcept {
+        uint64_t createOrderHandler(LOBOrder& order, bool is_buy) noexcept {
 
 
             // after aggressive check if quantity is still > 0 ---> (due to no or partial matching)
 
             aggressiveMatch(order, is_buy);
+            uint64_t done_at = __rdtsc(); // time to match aggressive.
 
             // add to LOB and transfer this even to Logger
             if(order.quantity > 0) {
@@ -100,9 +145,10 @@ namespace internal_lib {
                 } else {
                     SellOrderBook.createOrder(order);
                 }
-
+                done_at = __rdtsc();
                 // --- ADDED LOGIC ---
                 // Incremental Change for New Order Created in Book
+
                 sendIncrementalChange(order.system_id, order.price, order.quantity, 'N', is_buy ? 'B' : 'S');
                 
                 // Acknowledge Created only for Trader ID 1
@@ -111,14 +157,17 @@ namespace internal_lib {
                 }
                 // write code here 
             }
+
+            return done_at;
         }
 
-        void updateHandler(LOBOrder& order, bool is_buy) noexcept {
+        uint64_t updateHandler(LOBOrder& order, bool is_buy) noexcept {
 
             // if this makes a price updatethen we do delete and the call craetOrderhandler it Will automatically do aggressive checking fpor us no need to qrite separate code for that
             // but if quanrtity related changes then call the update function from lob_structs class
 
             // to peek entry from the LOB.
+            uint64_t done_at;
             LOBOrder* order_entry_in_lob;
 
             if(is_buy) {
@@ -127,7 +176,7 @@ namespace internal_lib {
                 order_entry_in_lob = SellOrderBook.peekLOBEntry(order.system_id);
             }
 
-            if (UNLIKELY(order_entry_in_lob == nullptr)) return;  // safety check 
+            if (UNLIKELY(order_entry_in_lob == nullptr)) return __rdtsc();  // safety check 
 
             bool quantity_change = (order_entry_in_lob->quantity != order.quantity);
             bool price_change = (order_entry_in_lob->price != order.price);
@@ -136,10 +185,10 @@ namespace internal_lib {
             if(price_change) {
                 // price based difference, do delete and update
                 // since order_entry was a pointer we need to pass the reference in deleteHandler so use asterisk
-                deleteHandler(*order_entry_in_lob, is_buy);
+                uint64_t x = deleteHandler(*order_entry_in_lob, is_buy); // no need of x
 
                 // by default we create new order so need not to update the orde separately
-                createOrderHandler(order,is_buy);
+                done_at = createOrderHandler(order,is_buy);
 
                 // won't send acknowledgement now, as delete and create form here would already have sent a succesfull one.
             } else if(quantity_change) {
@@ -149,7 +198,7 @@ namespace internal_lib {
                 } else {
                     SellOrderBook.updateOrderQuantity(order);
                 }
-
+                done_at = __rdtsc();
                 // --- ADDED LOGIC ---
                 // Send incremental for quantity change
                 sendIncrementalChange(order.system_id, order.price, order.quantity, 'U', is_buy ? 'B' : 'S');
@@ -160,10 +209,12 @@ namespace internal_lib {
                 }
             }
 
+            return done_at;
+
             // LOG
         }
 
-        void deleteHandler(LOBOrder& order, bool is_buy) noexcept {
+        uint64_t deleteHandler(LOBOrder& order, bool is_buy) noexcept {
             // call the LOB delete handler
 
             if(is_buy) {
@@ -172,7 +223,7 @@ namespace internal_lib {
             } else {
                 SellOrderBook.deleteOrder(order.system_id);
             }
-
+            uint64_t done_at =  __rdtsc();
             // --- ADDED LOGIC ---
             // Send incremental for deletion
             sendIncrementalChange(order.system_id, order.price, order.quantity, 'D', is_buy ? 'B' : 'S');
@@ -182,7 +233,7 @@ namespace internal_lib {
                 acknowledgeBackToOrderGateway(order.system_id, order.price, order.quantity, 'D', is_buy ? 'B' : 'S');
             }
 
-
+            return done_at;
             // LOG
         }
 
