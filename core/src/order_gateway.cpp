@@ -39,6 +39,20 @@ namespace internal_lib {
 
             std::vector<uint64_t> Order_Gateway_processing_Time;
 
+            // Throttle: busy-spin this many cycles after each order to match ME consumption rate.
+            // Set to 0 to disable. Tune so that OGW effective rate ≈ ME throughput.
+            // ME throughput ≈ 664 cycles, OGW processing ≈ 288 cycles → throttle ≈ 400 cycles.
+            uint64_t throttle_cycles = 400;
+
+            // Zero-overhead busy spin — uses rdtscp so it doesn't pollute caches.
+            inline void busy_spin_throttle() noexcept {
+                if(LIKELY(throttle_cycles > 0)) {
+                    uint64_t start = now_cycles();
+                    while((now_cycles() - start) < throttle_cycles) {
+                        // spin — CPU stays hot, no memory traffic
+                    }
+                }
+            }
 
         public :
 
@@ -60,7 +74,7 @@ namespace internal_lib {
                 Order_Gateway_processing_Time.reserve(11000); //  so that resising does not occour
                 internal_lib::SIMDBPlusTree<long long, int, 256>::init(100000);
                 
-                // Pre-allocate LUT
+                // pre-allocate LUT
                 LUT.resize(1000000);
             }
 
@@ -135,6 +149,8 @@ namespace internal_lib {
                                 LobOrderQueue->updateWrite();
                                 SniperOrderQueue->updateRead();
 
+                                // throttle: slow down ogw to match me consumption rate
+                                busy_spin_throttle();
                             }
                         }
 

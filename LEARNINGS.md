@@ -150,6 +150,47 @@ so we do this only but kind of at local level between producer and consumer thre
 14. ingress throttling - to make the Order gateway add some processing latency so that it becomes the biottle nech and hence the LKFqueue inside the system now won;t be choked only sniper queue will be choked and system will be like a free glide highway .
 
 
+proof 
+
+Earlier the stats were like 
+read - to read p90 latency of matching engine = 312 ns 
+processing p90 latencyof order gateway = 138 ns
+
+~ LOBOrder queu kept filing up and  and orders were waiting without any progress 
+
+```
+================ BENCHMARK FOR : Queue Wait Time ================
+
+
+ p50 : 298 cycles  (119 ns)
+ p75 : 412 cycles  (165 ns)
+ p90 : 2324 cycles  (931 ns)
+ p99 : 17926 cycles  (7181 ns)
+
+====================================================================
+```
+
+here ===> issues was that the producer is very fast and consumer is not able to copeup due to which orders are waiting in the queue, to eliminate this we add a throttle wait in order gateway which waits for somewhere around 400 CPU cycles/ 140 ns to match the rate of Push = rate of pop 
+
+with this we were able to reduce the congestion in queue, and queue wait time dropped to 
+
+
+```
+================ BENCHMARK FOR : Queue Wait Time ================
+
+
+ p50 : 264 cycles  (105 ns)
+ p75 : 274 cycles  (109 ns)
+ p90 : 350 cycles  (140 ns)
+ p99 : 2391 cycles  (957 ns)
+
+====================================================================
+```
+
+Huge win ----> still completely eliminating this queue wait time would increase the throughput of your system by atleast some hundred thousand more orders processed per second but that's a hard problem to solve.
+
+
+
 
 15. Adaptive Backpressure is a thing - warpstream is somnething related to it ?? 
 
@@ -163,3 +204,6 @@ but this __rdtsc() is non serializable --> means due to OOO execution ( out of o
 
 
 17. Out of order execution is a real pain in the ass!!!!! ---> I was getting really low benchmarks due to start and end being executed together  due to ooo Arghh!!!!
+
+
+

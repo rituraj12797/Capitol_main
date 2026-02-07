@@ -4,6 +4,7 @@
 #include "lob_structs.h"
 #include "order_gateway_structs.h"
 #include "thread_utils.h"
+#include "prewarmer.h"
 
 #include "../core/src/alpha_tester.cpp"
 #include "../core/src/order_gateway.cpp"
@@ -64,9 +65,11 @@ int main() {
         alphaServer.AlphaRun(start_alpha_server, terminate_alpha_server); 
     });
 
-	// wait for 3 seconds to letthe cpu reach max freq,
-    std::this_thread::sleep_for(std::chrono::seconds(3));
+	//  prewarm: burn all cores for 100 seconds to force max turbo frequency
+	internal_lib::prewarm(100);
+
 	// set start = true one by one
+	std::this_thread::sleep_for(std::chrono::seconds(3));
 
 	// start ME, start OG then start AlphaServer
 	std::cout<<"~~~~~~~~~~~~~~~~~~~~~ CAPITOL STARTED ~~~~~~~~~~~~~~~~~~~~~~~~~~~~` "<<"\n";
