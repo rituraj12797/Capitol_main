@@ -153,3 +153,8 @@ so we do this only but kind of at local level between producer and consumer thre
 
 15. Adaptive Backpressure is a thing - warpstream is somnething related to it ?? 
 
+
+
+16. for microbenchmarkign at extreme accuracy we use __rdtsc() read_time_stamp_counter ---> a way to get the number of CPU cycles completed without system call --->  usually chrono::now() is slow due to sys call involvement.
+
+but this __rdtsc() is non serializable --> means due to OOO execution ( out of order execution )  you may get wrong timings to add serializability to it we use ---> lfence _ rdtscp() + lfence ----> 

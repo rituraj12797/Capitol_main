@@ -71,24 +71,24 @@ int main() {
 	// start ME, start OG then start AlphaServer
 	std::cout<<"~~~~~~~~~~~~~~~~~~~~~ CAPITOL STARTED ~~~~~~~~~~~~~~~~~~~~~~~~~~~~` "<<"\n";
 	start_matching_engine.store(true);
-	std::cout<<" Matching Engine started \n";
 	start_ordergate_way.store(true);
-	std::cout<<" Order Gateway started \n";
 	start_alpha_server.store(true);
-	std::cout<<" Alpha Server started \n";
 
 
 	// stop now 
-	//  wait for 3 seconds
+	//  wait for 3 seconds for all orders to complete 
 	std::this_thread::sleep_for(std::chrono::seconds(5));
 
 	// stop Alpha 
-	std::cout<<" Terminating Alpha \n";
-	terminate_alpha_server.store(true);
-	std::cout<<" Terminating Order Gateway \n";
-	terminate_ordergate_way.store(true);
-	std::cout<<" Terminating Matching Engine \n";
+
 	terminate_matching_engine.store(true);
+	terminate_ordergate_way.store(true);
+	terminate_alpha_server.store(true);
+
+	
+
+
+
 	
 
 

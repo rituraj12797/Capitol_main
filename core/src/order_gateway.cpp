@@ -4,6 +4,8 @@
 #include "simd_bplus_tree.h"
 #include "order_gateway_structs.h"
 #include "mempool.h" 
+#include "benchmark_utility.h"
+#include "x86intrin.h" // for defining rdtsc based counter ------> read time stamp based counter
 
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
@@ -36,6 +38,9 @@ namespace internal_lib {
             int orders_received = 0;
             int LOB_orders_sent = 0;
 
+            std::vector<uint64_t> Order_Gateway_processing_Time;
+
+
         public :
 
             OrderGateway(
@@ -52,6 +57,8 @@ namespace internal_lib {
                      LobOrderQueue(loq)
                       {
                 // initialize B+ Tree
+
+                Order_Gateway_processing_Time.reserve(11000); //  so that resising does not occour
                 internal_lib::SIMDBPlusTree<long long, int, 256>::init(100000);
                 
                 // Pre-allocate LUT
@@ -87,7 +94,6 @@ namespace internal_lib {
                 
 
                 // press the accelerator but hold the breaks untill we receive a signal from main to blast off!!!
-                                std::cout<<" ============= running ==========\n ";
 
                 while(!start_order_gateway.load(std::memory_order_acquire)){
                     if(terminate_order_gateway.load(std::memory_order_acquire)) return;
@@ -100,39 +106,43 @@ namespace internal_lib {
                         UserOrder* readOrder = SniperOrderQueue->getNextRead(); 
 
                         if(LIKELY(readOrder != nullptr)) {
-
                             // testing
-                            orders_received++;
+                            uint64_t arrived_cc = __rdtsc(); // cpu cycles when ti arrived at this comp
+                            int sys_id = GetOrAssignSystemId(readOrder->order_id, readOrder->req_type);
+                            uint64_t og_work_done = __rdtsc(); // cpu cycles when it was completely processed here 
 
+                            Order_Gateway_processing_Time.push_back(og_work_done - arrived_cc);
 
                             LOBOrder* writeSlot = LobOrderQueue->getNextWrite();
                             if(LIKELY(writeSlot != nullptr)) {
                             // zero copy write directly to buffer
-                                writeSlot->arrived_at = std::chrono::high_resolution_clock::now().time_since_epoch().count(); // readOrder has this as null arrived at is basically the time at which the order arrived on the gateway
-                                writeSlot->system_id = GetOrAssignSystemId(readOrder->order_id, readOrder->req_type);
+                                // write now
+
+                                writeSlot->arrived_cycle_count = arrived_cc; // cyce count when it got popped out at order gateway. // this will be used later.
+                                writeSlot->system_id = sys_id;
                                 writeSlot->order_type = readOrder->order_type;
                                 writeSlot->quantity = readOrder->quantity;
                                 writeSlot->price = readOrder->price;
                                 writeSlot->req_type = readOrder->req_type;
                                 writeSlot->trader_id = readOrder->trader_id; // sniper is 0
+                                writeSlot->out_cycle_count = __rdtsc(); // the moment this was out from Order Gateway and pushed in LOBOrder qyeye
                             
                                 LobOrderQueue->updateWrite();
                                 SniperOrderQueue->updateRead();
 
-                                LOB_orders_sent++;
                             }
                         }
 
                         // take from market maker ---> we will only define a queue as of now for market maker but nothign will be there as of now 
                         readOrder = MMOrderQueue->getNextRead();
-                    
+                        
                         if(LIKELY(readOrder != nullptr)) {
                         
                         LOBOrder* writeSlot = LobOrderQueue->getNextWrite();
                         
                         if(LIKELY(writeSlot != nullptr)) {
                             // zero copy write directly to buffer
-                            writeSlot->arrived_at = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+                            writeSlot->arrived_cycle_count = __rdtsc();
                             writeSlot->system_id = GetOrAssignSystemId(readOrder->order_id, readOrder->req_type);
                             writeSlot->order_type = readOrder->order_type;
                             writeSlot->quantity = readOrder->quantity;
@@ -176,8 +186,11 @@ namespace internal_lib {
                     
                 }
 
-                std::cout<<" User orders received : "<<orders_received<<"\n" ;
-                std::cout<<" LOB Orders sent : "<<LOB_orders_sent<<"\n";
+                std::this_thread::sleep_for(std::chrono::seconds(6)); // wait 6 seconds
+
+                std::string ogpt = "Order Gateway Processing Time";
+
+                internal_lib::showBench(ogpt, Order_Gateway_processing_Time);
 
                 return ;
 

@@ -13,7 +13,7 @@ namespace internal_lib {
 		// The structure of order expected by LOB. - 32 Byte.
 
 		// 8 Byte
-		long long arrived_at; // * byte
+		uint64_t arrived_cycle_count; // * byte
 
 		// 8 byte
 		int system_id; // unique id provided to this order by system   4 byte
@@ -25,28 +25,28 @@ namespace internal_lib {
 		char order_type; // 'b' or 's' 1 byte
 		char req_type; // 'c'-create, 'u'-update, 'd'-delete // 1 byte
 
-		// 8 byte padding to make it 32 byte 
-		char pad[8];
+		// 8 byte out time 
+		uint64_t out_cycle_count;
 	};
 
 	struct UserOrder{
 		// The structure of order sent by User. - 32 Byte.
 		
 		// 8 Byte
-		long long arrived_at; // 8 Byte (null as of now) btu as sopon as it gets popped out at the gateway we will set it to be time.now()
+		uint64_t arrived_cycle_count; // 8 Byte (null as of now) btu as sopon as it gets popped out at the gateway we will set it to be time.now()
 
 		// 8 byte
-		long long order_id; // unique order is = created_at*100 + userid(0 to 99). thia makes it unique.
-		
+		int order_id; // unique order id ==> how >> this will be single for each trader id and trader id it self is unique so we can say , (trader_id_x, ordeR_id_y) will be unique   4 byte
+		short trader_id; // id of trader ~ 2 Byte ( 100 user total ==> 1 sniper and 99 will be market makers, ids will be 0 based indexed)
+		char order_type; // 'b' or 's' 1 byte
+		char req_type; // 'c'-create, 'u'-update, 'd'-delete // 1 byte
+
 		// 8 Byte
 		float price; // we expect price ~ 32k only (use case)    4 byte
 		int quantity; // quantity of order 4 byte
 
 		// 8 byte
-		short trader_id; // id of trader ~ 2 Byte ( 100 user total ==> 1 sniper and 99 will be market makers, ids will be 0 based indexed)
-		char order_type; // 'b' or 's' 1 byte
-		char req_type; // 'c'-create, 'u'-update, 'd'-delete // 1 byte
-		char pad[4];	// 4 byte
+		uint64_t out_cycle_count;
 		
 	};
 

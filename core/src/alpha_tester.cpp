@@ -16,8 +16,6 @@ namespace internal_lib {
 			internal_lib::LFQueue<internal_lib::BroadcastElement>* BroadcastQueue;
 			std::vector<internal_lib::UserOrder> TestStore;
 
-			int count_increment = 0;
-
 		public : 
 
 			AlphaServer(
@@ -36,8 +34,7 @@ namespace internal_lib {
 				//  hogging
 
 				// fill testStore here with 10,000 order entries each with price between 110 to 150 and price is quantum osd 0.1 so it can be anythingx*0.1 which lies betwen 110 amd 150
-
-
+				
 				for (int i = 0; i < 10000; ++i) {
     				internal_lib::UserOrder order;
     				// (150 - 110) / 0.1 = 400 steps. 
@@ -53,12 +50,8 @@ namespace internal_lib {
 
 				// start
 				for(int i = 0 ; i < TestStore.size() && !terminate.load(std::memory_order_acquire); i++) {
-					// std::cout<<" run ";
 					run(i);
 				}
-
-				std::cout<<" 10,000 Orders Sent from A -> G \n";
-				std::cout<<" Increments received from Broadcaster : "<<count_increment<<"\n";
 				
 			}
 
@@ -81,7 +74,6 @@ namespace internal_lib {
 				// read from incremental change log,
 				auto* broadcastIncrement = BroadcastQueue->getNextRead();
 				if (broadcastIncrement) {
-					count_increment++;
     				BroadcastQueue->updateRead();
 				}
 
