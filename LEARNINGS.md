@@ -158,3 +158,8 @@ so we do this only but kind of at local level between producer and consumer thre
 16. for microbenchmarkign at extreme accuracy we use __rdtsc() read_time_stamp_counter ---> a way to get the number of CPU cycles completed without system call --->  usually chrono::now() is slow due to sys call involvement.
 
 but this __rdtsc() is non serializable --> means due to OOO execution ( out of order execution )  you may get wrong timings to add serializability to it we use ---> lfence _ rdtscp() + lfence ----> 
+
+
+
+
+17. Out of order execution is a real pain in the ass!!!!! ---> I was getting really low benchmarks due to start and end being executed together  due to ooo Arghh!!!!

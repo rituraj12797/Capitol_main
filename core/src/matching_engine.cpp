@@ -3,7 +3,6 @@
 #include "lf_queue.h"
 #include "lob_structs.h"
 #include "benchmark_utility.h"
-#include "x86intrin.h" // for defining rdtsc based counter ------> read time stamp based counter
 
 
 #define LIKELY(x) __builtin_expect(!!(x), 1)
@@ -30,7 +29,9 @@ namespace internal_lib {
 
         std::vector<uint64_t> Queue_Wait_Time;
         std::vector<uint64_t> Matching_Engine_Processing_Time;
-        std::vector<uint64_t> Tick_To_Trade_Time; 
+        std::vector<uint64_t> Tick_To_Trade_Time;
+        std::vector<uint64_t> Matching_Engine_Throughput; // time between 2 consecutive successful reads = true throughput
+        uint64_t last_read_cycle = 0; // cycle stamp of previous successful read
 
 
         public : 
@@ -54,6 +55,7 @@ namespace internal_lib {
                 Queue_Wait_Time.reserve(11000);
                 Matching_Engine_Processing_Time.reserve(11000);
                 Tick_To_Trade_Time.reserve(11000);
+                Matching_Engine_Throughput.reserve(11000);
             } // empty body 
 
 
@@ -75,10 +77,13 @@ namespace internal_lib {
             std::string qwt = "Queue Wait Time";
             std::string mept = "Matching Engine Processing Time";
             std::string tttt = "Tick To Trade Time";
+            std::string metp = "ME Throughput (time between consecutive reads)";
 
-            internal_lib::showBench(tttt, Tick_To_Trade_Time);
-            internal_lib::showBench(mept, Matching_Engine_Processing_Time);
-            internal_lib::showBench(qwt, Queue_Wait_Time);
+            double cpns = internal_lib::get_cycles_per_ns();
+            internal_lib::showBench(tttt, Tick_To_Trade_Time, cpns);
+            internal_lib::showBench(mept, Matching_Engine_Processing_Time, cpns);
+            internal_lib::showBench(qwt, Queue_Wait_Time, cpns);
+            internal_lib::showBench(metp, Matching_Engine_Throughput, cpns);
 
 
 
@@ -100,14 +105,21 @@ namespace internal_lib {
                 return ;
             } 
 
-            uint64_t arrived_at_lob = __rdtsc(); // cycle count when it got out of queue
+            uint64_t arrived_at_lob = now_cycles(); // nanosecond timestamp when it got out of queue
 
             Queue_Wait_Time.push_back(arrived_at_lob - order->out_cycle_count); // time it got out of queue - time ewhen this was pushed into the queue
 
-            uint64_t order_arrived_at = __rdtsc();
-            uint64_t order_processing_complete;
+            //  time between this read and the previous successful read
+            if(LIKELY(last_read_cycle != 0)) {
+                Matching_Engine_Throughput.push_back(arrived_at_lob - last_read_cycle);
+            }
+            last_read_cycle = arrived_at_lob;
 
-            
+            compiler_barrier();
+            uint64_t order_arrived_at = now_cycles();
+            compiler_barrier();
+
+            uint64_t order_processing_complete;
 
             bool is_buy = ((order->order_type == 'b') ? true : false); // Assuming 'side' is the member based on previous context
             if(order->req_type == 'c') {
@@ -136,7 +148,6 @@ namespace internal_lib {
             // after aggressive check if quantity is still > 0 ---> (due to no or partial matching)
 
             aggressiveMatch(order, is_buy);
-            uint64_t done_at = __rdtsc(); // time to match aggressive.
 
             // add to LOB and transfer this even to Logger
             if(order.quantity > 0) {
@@ -145,19 +156,16 @@ namespace internal_lib {
                 } else {
                     SellOrderBook.createOrder(order);
                 }
-                done_at = __rdtsc();
-                // --- ADDED LOGIC ---
-                // Incremental Change for New Order Created in Book
 
                 sendIncrementalChange(order.system_id, order.price, order.quantity, 'N', is_buy ? 'B' : 'S');
                 
-                // Acknowledge Created only for Trader ID 1
                 if (order.trader_id == 1) {
                     acknowledgeBackToOrderGateway(order.system_id, order.price, order.quantity, 'C', is_buy ? 'B' : 'S');
                 }
-                // write code here 
             }
 
+            compiler_barrier();
+            uint64_t done_at = now_cycles(); // stamp AFTER all work including queue writes
             return done_at;
         }
 
@@ -176,7 +184,7 @@ namespace internal_lib {
                 order_entry_in_lob = SellOrderBook.peekLOBEntry(order.system_id);
             }
 
-            if (UNLIKELY(order_entry_in_lob == nullptr)) return __rdtsc();  // safety check 
+            if (UNLIKELY(order_entry_in_lob == nullptr)) return now_cycles();  // safety check 
 
             bool quantity_change = (order_entry_in_lob->quantity != order.quantity);
             bool price_change = (order_entry_in_lob->price != order.price);
@@ -198,15 +206,16 @@ namespace internal_lib {
                 } else {
                     SellOrderBook.updateOrderQuantity(order);
                 }
-                done_at = __rdtsc();
-                // --- ADDED LOGIC ---
-                // Send incremental for quantity change
+
+                // send incremental for quantity change
                 sendIncrementalChange(order.system_id, order.price, order.quantity, 'U', is_buy ? 'B' : 'S');
 
-                // Acknowledge for Trader 1
+                // acknowledge for Trader 1
                 if (order.trader_id == 1) {
                     acknowledgeBackToOrderGateway(order.system_id, order.price, order.quantity, 'U', is_buy ? 'B' : 'S');
                 }
+                compiler_barrier();
+                done_at = now_cycles();
             }
 
             return done_at;
@@ -223,16 +232,17 @@ namespace internal_lib {
             } else {
                 SellOrderBook.deleteOrder(order.system_id);
             }
-            uint64_t done_at =  __rdtsc();
-            // --- ADDED LOGIC ---
-            // Send incremental for deletion
+
+            // send incremental for deletion
             sendIncrementalChange(order.system_id, order.price, order.quantity, 'D', is_buy ? 'B' : 'S');
 
-            // Acknowledge Deleted for Trader 1
+            // acknowledge Deleted for trader 1
             if (order.trader_id == 1) {
                 acknowledgeBackToOrderGateway(order.system_id, order.price, order.quantity, 'D', is_buy ? 'B' : 'S');
             }
 
+            compiler_barrier();
+            uint64_t done_at = now_cycles();
             return done_at;
             // LOG
         }
@@ -293,7 +303,7 @@ namespace internal_lib {
                             order.quantity = 0; 
                     
                             // send a specific 'cancelled' acknowledgement to the gateway as wash trade is detected
-                            // ACK: Only for Trader 1
+                            // ack: only for rader 1
                             if (order.trader_id == 1) {
                                 acknowledgeBackToOrderGateway(order.system_id, order.price, 0, 'K', 'B');
                             }
@@ -310,7 +320,7 @@ namespace internal_lib {
                         passive.quantity -= trade_qty;
 
                         // broadcast change
-                        // (As per your request, trade matching only sends Acks, no sendIncrementalChange here)
+                        //  trades will be handles by user so he will upodated based on it and for the second passive order/ or the ordere which was not his he will get a increment request via delete function whic is below 
 
                         // acknowledge back for TRADER ID 1 only
                         if (order.trader_id == 1) {
@@ -361,7 +371,7 @@ namespace internal_lib {
                             order.quantity = 0; 
                     
                             // send a specific 'cancelled' acknowledgement to the gateway as wash trade is detected
-                            // ACK: Only for Trader 1
+                            // ack only for Trader 1
                             if (order.trader_id == 1) {
                                 acknowledgeBackToOrderGateway(order.system_id, order.price, 0, 'K', 'S');
                             }
@@ -384,7 +394,7 @@ namespace internal_lib {
                             acknowledgeBackToOrderGateway(passive.system_id, trade_price, trade_qty, 'T', 'B');
                         }
                         
-                        // (Trades skip IncrementalChange per your instruction)
+                        //  trades will be handles by user so he will upodated based on it and for the second passive order/ or the ordere which was not his he will get a increment request via delete function whic is below 
 
                         // remove the passive entry modify LOB
                         if (passive.quantity == 0) {
@@ -414,7 +424,7 @@ namespace internal_lib {
             // write to AckQueue.
             LOBAcknowledgement* write_obj = LobAckQueue->getNextWrite();
 
-            // I know this is risk we should keep somethign likea busy wait or a spoin wait here
+            // I know this is risk we should keep somethign likea busy wait or a spin wait here
             // but since our queues is large (5x the crash size) this is high probvablity that it will not block,
             // also we doing testing so need to remove the busy wait to a simple check. 
 

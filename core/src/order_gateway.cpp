@@ -5,7 +5,6 @@
 #include "order_gateway_structs.h"
 #include "mempool.h" 
 #include "benchmark_utility.h"
-#include "x86intrin.h" // for defining rdtsc based counter ------> read time stamp based counter
 
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
@@ -107,9 +106,15 @@ namespace internal_lib {
 
                         if(LIKELY(readOrder != nullptr)) {
                             // testing
-                            uint64_t arrived_cc = __rdtsc(); // cpu cycles when ti arrived at this comp
+                            compiler_barrier();
+                            uint64_t arrived_cc = now_cycles(); // serialized timestamp when it arrived
+                            compiler_barrier();
+
                             int sys_id = GetOrAssignSystemId(readOrder->order_id, readOrder->req_type);
-                            uint64_t og_work_done = __rdtsc(); // cpu cycles when it was completely processed here 
+
+                            compiler_barrier();
+                            uint64_t og_work_done = now_cycles(); // serialized timestamp when processing complete
+                            compiler_barrier();
 
                             Order_Gateway_processing_Time.push_back(og_work_done - arrived_cc);
 
@@ -125,7 +130,7 @@ namespace internal_lib {
                                 writeSlot->price = readOrder->price;
                                 writeSlot->req_type = readOrder->req_type;
                                 writeSlot->trader_id = readOrder->trader_id; // sniper is 0
-                                writeSlot->out_cycle_count = __rdtsc(); // the moment this was out from Order Gateway and pushed in LOBOrder qyeye
+                                writeSlot->out_cycle_count = now_cycles(); // the moment this was out from Order Gateway and pushed in LOBOrder queue
                             
                                 LobOrderQueue->updateWrite();
                                 SniperOrderQueue->updateRead();
@@ -142,7 +147,7 @@ namespace internal_lib {
                         
                         if(LIKELY(writeSlot != nullptr)) {
                             // zero copy write directly to buffer
-                            writeSlot->arrived_cycle_count = __rdtsc();
+                            writeSlot->arrived_cycle_count = now_cycles();
                             writeSlot->system_id = GetOrAssignSystemId(readOrder->order_id, readOrder->req_type);
                             writeSlot->order_type = readOrder->order_type;
                             writeSlot->quantity = readOrder->quantity;
@@ -190,7 +195,8 @@ namespace internal_lib {
 
                 std::string ogpt = "Order Gateway Processing Time";
 
-                internal_lib::showBench(ogpt, Order_Gateway_processing_Time);
+                double cpns = internal_lib::get_cycles_per_ns();
+                internal_lib::showBench(ogpt, Order_Gateway_processing_Time, cpns);
 
                 return ;
 

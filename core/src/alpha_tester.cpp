@@ -41,6 +41,13 @@ namespace internal_lib {
     				// rand() % 401 generates 0-400. 
     				// 110 + (result * 0.1) gives the price.
     				order.price = 110.0 + (double)(rand() % 401) * 0.1; 
+					order.order_id = i;               // unique order id per order
+					order.req_type = 'c';             // create order
+					order.order_type = (rand() % 2 == 0) ? 'b' : 's'; // random buy/sell
+					order.quantity = (rand() % 100) + 1; // 1-100 lots
+					order.trader_id = 1;              // sniper trader
+					order.arrived_cycle_count = 0;
+					order.out_cycle_count = 0;
     				TestStore.push_back(order);
 				}
 
