@@ -31,6 +31,11 @@ namespace internal_lib {
             
             int next_system_id = 0; // start from 0
 
+
+            // 
+            int orders_received = 0;
+            int LOB_orders_sent = 0;
+
         public :
 
             OrderGateway(
@@ -82,8 +87,10 @@ namespace internal_lib {
                 
 
                 // press the accelerator but hold the breaks untill we receive a signal from main to blast off!!!
+                                std::cout<<" ============= running ==========\n ";
+
                 while(!start_order_gateway.load(std::memory_order_acquire)){
-                    if(!terminate_order_gateway.load(std::memory_order_acquire)) return;
+                    if(terminate_order_gateway.load(std::memory_order_acquire)) return;
                 }
 
                 // NOW !!!!!!!!!!!!
@@ -93,22 +100,27 @@ namespace internal_lib {
                         UserOrder* readOrder = SniperOrderQueue->getNextRead(); 
 
                         if(LIKELY(readOrder != nullptr)) {
-                        
-                        LOBOrder* writeSlot = LobOrderQueue->getNextWrite();
-                        
-                        if(LIKELY(writeSlot != nullptr)) {
+
+                            // testing
+                            orders_received++;
+
+
+                            LOBOrder* writeSlot = LobOrderQueue->getNextWrite();
+                            if(LIKELY(writeSlot != nullptr)) {
                             // zero copy write directly to buffer
-                            writeSlot->arrived_at = std::chrono::high_resolution_clock::now().time_since_epoch().count(); // readOrder has this as null arrived at is basically the time at which the order arrived on the gateway
-                            writeSlot->system_id = GetOrAssignSystemId(readOrder->order_id, readOrder->req_type);
-                            writeSlot->order_type = readOrder->order_type;
-                            writeSlot->quantity = readOrder->quantity;
-                            writeSlot->price = readOrder->price;
-                            writeSlot->req_type = readOrder->req_type;
-                            writeSlot->trader_id = readOrder->trader_id; // sniper is 0
+                                writeSlot->arrived_at = std::chrono::high_resolution_clock::now().time_since_epoch().count(); // readOrder has this as null arrived at is basically the time at which the order arrived on the gateway
+                                writeSlot->system_id = GetOrAssignSystemId(readOrder->order_id, readOrder->req_type);
+                                writeSlot->order_type = readOrder->order_type;
+                                writeSlot->quantity = readOrder->quantity;
+                                writeSlot->price = readOrder->price;
+                                writeSlot->req_type = readOrder->req_type;
+                                writeSlot->trader_id = readOrder->trader_id; // sniper is 0
                             
-                            LobOrderQueue->updateWrite();
-                            SniperOrderQueue->updateRead();
-                        }
+                                LobOrderQueue->updateWrite();
+                                SniperOrderQueue->updateRead();
+
+                                LOB_orders_sent++;
+                            }
                         }
 
                         // take from market maker ---> we will only define a queue as of now for market maker but nothign will be there as of now 
@@ -163,6 +175,9 @@ namespace internal_lib {
                         }
                     
                 }
+
+                std::cout<<" User orders received : "<<orders_received<<"\n" ;
+                std::cout<<" LOB Orders sent : "<<LOB_orders_sent<<"\n";
 
                 return ;
 

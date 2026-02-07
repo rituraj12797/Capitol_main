@@ -24,6 +24,9 @@ namespace internal_lib {
         internal_lib::LimitedOrderBook<true> BuyOrderBook; // it has it's Own LUT
         internal_lib::LimitedOrderBook<false> SellOrderBook; // it has it's own LUT
 
+        int total_broadcast_sent = 0;
+        int orders_processed = 0;
+
         public : 
 
         MatchingEngine() = delete;
@@ -53,6 +56,8 @@ namespace internal_lib {
             while(!terminate_engine.load(std::memory_order_acquire)) {
                 readOrder(); // blast read infinitley untill engine stops.
             }
+            std::cout<<" Orderes received : "<<orders_processed<<"\n";
+            std::cout<<" Broadcasts sent : "<<total_broadcast_sent<<"\n";
 
         }
 
@@ -68,6 +73,8 @@ namespace internal_lib {
                 // return.
                 return ;
             } 
+
+            orders_processed++;
 
             bool is_buy = ((order->order_type == 'b') ? true : false); // Assuming 'side' is the member based on previous context
             if(order->req_type == 'c') {
@@ -407,6 +414,7 @@ namespace internal_lib {
             }*/
             if(write_obj == nullptr) { 
                 write_obj = BroadcastQueue->getNextWrite();
+                total_broadcast_sent++;
             }
 
 

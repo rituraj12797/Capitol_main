@@ -69,19 +69,27 @@ int main() {
 	// set start = true one by one
 
 	// start ME, start OG then start AlphaServer
-
+	std::cout<<"~~~~~~~~~~~~~~~~~~~~~ CAPITOL STARTED ~~~~~~~~~~~~~~~~~~~~~~~~~~~~` "<<"\n";
 	start_matching_engine.store(true);
+	std::cout<<" Matching Engine started \n";
 	start_ordergate_way.store(true);
+	std::cout<<" Order Gateway started \n";
 	start_alpha_server.store(true);
+	std::cout<<" Alpha Server started \n";
+
 
 	// stop now 
 	//  wait for 3 seconds
-	std::this_thread::sleep_for(std::chrono::seconds(3));
+	std::this_thread::sleep_for(std::chrono::seconds(5));
 
 	// stop Alpha 
+	std::cout<<" Terminating Alpha \n";
 	terminate_alpha_server.store(true);
+	std::cout<<" Terminating Order Gateway \n";
 	terminate_ordergate_way.store(true);
+	std::cout<<" Terminating Matching Engine \n";
 	terminate_matching_engine.store(true);
+	
 
 
 	// join threads now
@@ -93,6 +101,8 @@ int main() {
 	delete matching_engine_thread;
 	delete order_gateway_thread;
 	delete alpha_server_thread;
+
+	std::cout<<"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ CLOSING CAPITOL ~~~~~~~~~~~~~~~~~~ \n";
 
 	return 0;
 
