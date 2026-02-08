@@ -3,56 +3,57 @@
 #include<fstream>
 #include<thread>
 #include<atomic>
+#include <variant>
+#include <string>
 
 #include "lf_queue.h"
 #include "time_util.h"
 #include "imp_macros.h"
+#include "lob_structs.h"
+#include "order_gateway_structs.h"
 
 
 namespace internal_lib {
 
-	enum class ComponentId : uint8_t { // this defines a enum of size 1 Byte, which denotes the log is sent by which process
-		MKT_DATA = 0, // if ComponentId becomes 1 means the log was sent by the mkt data publisher.
-		LOB_ENGINE = 1,	// if 1 then set by the Limited Order Book Matching Engine
-		ORDER_GATEWAY = 2,	// if 2 then sent by the order gateway
-		SYSTEM_CORE = 3 // if 3 means it is a custom system log
+	// define a Log structure 
+
+	//	   We Mainly Log 5 type Of Element 
+
+	struct LogElement {
+
+		int log_identifier; // identifier of event
+		uint64_t time_stamp; // when did this event happened 
+		// container 
+		std::variant<internal_lib::BroadcastElement, internal_lib::LOBOrder, internal_lib::UserOrder, internal_lib::LOBAcknowledgement, internal_lib::UserAcknowledgement> logData; // data associated with this event 
 	};
 
-
-	// market data
-	struct market_data_publisher_log_object { // this will be the data object that the market publishers logs
-		// WE WILL DEFINE THIS WHEN WE WRITE THE MARKET DATA PUBLISHER COMPONENT 
-		// for now only keep a sinhle int 
-		int x;
-	};
+	// 1. LOBOrder
+	// 2. UserOrder
+	// 3. LOBAcknowledgement
+	// 4. UserAcknowldegement
+	// 5. BroadCastElement 
 
 
-	struct limited_order_book_log_object { // this will be the data object lob logs
-		// WE WILL DEFINE THIS WHEN WE WRITE THE LOB COMPONENT  
-		int y;
-	};
+	// What Are The Events That We Will Log ??
 
-	struct network_order_gateway_log_object { // will be the log data whihc network gateway object logs 
-		// WE WILL DEFINE THIS WHEN WE WRITE THE ORDER GATEWAY COMPONENT 
-		int z;
-	};
+	// Order Arrives At Order Gateway ==> Identifier = 1 ===> Log Data = User Order 
+	// Order Is Sent From Order GateWay To Matching Engine =====> Identifier = 2 ====> Log Data = LOBOrder
+	// Order Arrived At Matching Engine ====> Identifier = 3 ====> Log Data = LOBOrder
+	// Order Aggressive Matched ====> Identifier = 4 ====> Log Data = LOBOrder
+	// Order Created In LOB ====> Identifier = 5 ====> Log Data = LOBOrder
+	// Order Deleted In LOB ====> Identifier = 6 ====> Log Data = LOBOrder
+	// Order Quantity Update in LOB ====> Identifier = 7 ====> Log Data = LOBOrder
+	// WHY NO LOGGING FOR PRICE CHANGE BASED UPDATES ?? ====? beacuse it involved creation and then deletion which will log this event so no need to do again.
+	// Matching Engine Passed An Acknowledgement To Order Gateway====> Identifier = 8 ======> Log Data = LOBAcknowledgement
+	// Order Gateway Received An Acknowledgement ====> Identifier = 9 =====> Log Data = LOBAcknowledgement
+	// Order Gateway Sends An Acknowledgement To Sniper/Alpha ====> Identifier = 10 =====> Log Data = UserAcknowledgement
+	// Matching Engine Broadcasts A Incremental Change To Alpha/Sniper ====> Identifier = 11 ====> Log Data = BroadcastElement
 
-	// we make our LogElement 64 bytes long in order to make it fit exactly in one cache line- so that when data pull.push happens complete data gets picked up
-	struct alignas(64) LogElement {
+    // done - 10, 9, 8, 1, 2, 3, 4, 5, 6, 7
 
-		uint64_t time_stamp; // timestamp  // 8 bytes 
-		ComponentId component; // 1 byte
-		int32_t core_id; // 4 bytes 
-		int32_t string_token; // 4 bytes for string token; 
 
-		// the log data container
-		union {
-			market_data_publisher_log_object mkt;
-			limited_order_book_log_object lob;
-			network_order_gateway_log_object ogw;
-			int64_t generic_data; // for storing custom integer data;
-		} data_object;
-	};
+	// this captures all the activity happening inside our element 
+
 
 
 	// define a logger class 
@@ -85,9 +86,8 @@ namespace internal_lib {
 
 		private : 
 
-		internal_lib::LFQueue<LogElement>* mk_pub_queue; // pointer to the market publisher service logger
-		internal_lib::LFQueue<LogElement>* lob_queue; // pointer to limited order book  logger
-		internal_lib::LFQueue<LogElement>* network_gw_queue; // pointer to network gate way logger
+		internal_lib::LFQueue<LogElement>* matching_engine_queue; // pointer to limited order book  logger
+		internal_lib::LFQueue<LogElement>* order_gateway_queue; // pointer to network gate way logger
 
 		std::string file_path;
 		std::atomic<bool> running = {true};
@@ -97,9 +97,8 @@ namespace internal_lib {
 
 
 		Async_Logger(std::string& path,
-					internal_lib::LFQueue<LogElement>* mkpbq,
 					internal_lib::LFQueue<LogElement>* lbq,
-					internal_lib::LFQueue<LogElement>* ntgwq) : mk_pub_queue(mkpbq), lob_queue(lbq), network_gw_queue(ntgwq), file_path(path) {
+					internal_lib::LFQueue<LogElement>* ntgwq): matching_engine_queue(lbq), order_gateway_queue(ntgwq), file_path(path) {
 			// empty body here 	
 		}
 
@@ -128,9 +127,8 @@ namespace internal_lib {
 
 		 		bool busy  = false; // define a buys variable 
 
-		 		busy |= drainBatch(mk_pub_queue, file, 50 );
-		 		busy |= drainBatch(lob_queue, file, 50 );
-		 		busy |= drainBatch(network_gw_queue, file, 50 );
+		 		busy |= drainBatch(matching_engine_queue, file, 50 );
+		 		busy |= drainBatch(order_gateway_queue, file, 50 );
 
 		 		if(busy == false) std::this_thread::yield();
 		 	}
@@ -159,6 +157,192 @@ namespace internal_lib {
     		return buffer;
 		}
 
+		char* write_string(const char* str, char* buffer) {
+			while (*str) {
+				*buffer++ = *str++;
+			}
+			return buffer;
+		}
+
+		char* fast_int_to_str(int value, char* buffer) {
+			if (value < 0) {
+				*buffer++ = '-';
+				value = -value;
+			}
+			
+			char temp[12];
+			char* p = temp + 11;
+			*p = '\0';
+			
+			do {
+				*--p = (value % 10) + '0';
+				value /= 10;
+			} while (value > 0);
+			
+			while (*p) *buffer++ = *p++;
+			return buffer;
+		}
+
+		char* fast_float_to_str(float value, char* buffer) {
+			// Simple float to string conversion (2 decimal places)
+			int int_part = (int)value;
+			buffer = fast_int_to_str(int_part, buffer);
+			*buffer++ = '.';
+			
+			int frac_part = (int)((value - int_part) * 100);
+			if (frac_part < 0) frac_part = -frac_part;
+			
+			*buffer++ = (frac_part / 10) + '0';
+			*buffer++ = (frac_part % 10) + '0';
+			
+			return buffer;
+		}
+
+		// Helper functions to write each struct type
+		char* write_LOBOrder(const LOBOrder& order, char* buffer) {
+			buffer = write_string("LOBOrder arrived_cycle_count : ", buffer);
+			buffer = fast_u64_to_str(order.arrived_cycle_count, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("LOBOrder system_id : ", buffer);
+			buffer = fast_int_to_str(order.system_id, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("LOBOrder price : ", buffer);
+			buffer = fast_float_to_str(order.price, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("LOBOrder quantity : ", buffer);
+			buffer = fast_int_to_str(order.quantity, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("LOBOrder trader_id : ", buffer);
+			buffer = fast_int_to_str(order.trader_id, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("LOBOrder order_type : ", buffer);
+			*buffer++ = order.order_type;
+			*buffer++ = '\n';
+			
+			buffer = write_string("LOBOrder req_type : ", buffer);
+			*buffer++ = order.req_type;
+			*buffer++ = '\n';
+			
+			buffer = write_string("LOBOrder out_cycle_count : ", buffer);
+			buffer = fast_u64_to_str(order.out_cycle_count, buffer);
+			*buffer++ = '\n';
+			
+			return buffer;
+		}
+
+		char* write_UserOrder(const UserOrder& order, char* buffer) {
+			buffer = write_string("UserOrder arrived_cycle_count : ", buffer);
+			buffer = fast_u64_to_str(order.arrived_cycle_count, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("UserOrder order_id : ", buffer);
+			buffer = fast_int_to_str(order.order_id, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("UserOrder trader_id : ", buffer);
+			buffer = fast_int_to_str(order.trader_id, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("UserOrder order_type : ", buffer);
+			*buffer++ = order.order_type;
+			*buffer++ = '\n';
+			
+			buffer = write_string("UserOrder req_type : ", buffer);
+			*buffer++ = order.req_type;
+			*buffer++ = '\n';
+			
+			buffer = write_string("UserOrder price : ", buffer);
+			buffer = fast_float_to_str(order.price, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("UserOrder quantity : ", buffer);
+			buffer = fast_int_to_str(order.quantity, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("UserOrder out_cycle_count : ", buffer);
+			buffer = fast_u64_to_str(order.out_cycle_count, buffer);
+			*buffer++ = '\n';
+			
+			return buffer;
+		}
+
+		char* write_LOBAcknowledgement(const LOBAcknowledgement& ack, char* buffer) {
+			buffer = write_string("LOBAcknowledgement system_id : ", buffer);
+			buffer = fast_int_to_str(ack.system_id, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("LOBAcknowledgement price : ", buffer);
+			buffer = fast_float_to_str(ack.price, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("LOBAcknowledgement quantity : ", buffer);
+			buffer = fast_int_to_str(ack.quantity, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("LOBAcknowledgement side : ", buffer);
+			*buffer++ = ack.side;
+			*buffer++ = '\n';
+			
+			buffer = write_string("LOBAcknowledgement status : ", buffer);
+			*buffer++ = ack.status;
+			*buffer++ = '\n';
+			
+			return buffer;
+		}
+
+		char* write_UserAcknowledgement(const UserAcknowledgement& ack, char* buffer) {
+			buffer = write_string("UserAcknowledgement order_id : ", buffer);
+			buffer = fast_u64_to_str(ack.order_id, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("UserAcknowledgement price : ", buffer);
+			buffer = fast_float_to_str(ack.price, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("UserAcknowledgement quantity : ", buffer);
+			buffer = fast_int_to_str(ack.quantity, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("UserAcknowledgement side : ", buffer);
+			*buffer++ = ack.side;
+			*buffer++ = '\n';
+			
+			buffer = write_string("UserAcknowledgement status : ", buffer);
+			*buffer++ = ack.status;
+			*buffer++ = '\n';
+			
+			return buffer;
+		}
+
+		char* write_BroadcastElement(const BroadcastElement& broadcast, char* buffer) {
+			buffer = write_string("BroadcastElement system_id : ", buffer);
+			buffer = fast_int_to_str(broadcast.system_id, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("BroadcastElement price : ", buffer);
+			buffer = fast_float_to_str(broadcast.price, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("BroadcastElement quantity : ", buffer);
+			buffer = fast_int_to_str(broadcast.quantity, buffer);
+			*buffer++ = '\n';
+			
+			buffer = write_string("BroadcastElement side : ", buffer);
+			*buffer++ = broadcast.side;
+			*buffer++ = '\n';
+			
+			buffer = write_string("BroadcastElement type : ", buffer);
+			*buffer++ = broadcast.type;
+			*buffer++ = '\n';
+			
+			return buffer;
+		}
+
 		bool drainBatch(LFQueue<LogElement>* q, std::ofstream& file, int limit) {
 
 			// define a 4kb stack buffer
@@ -173,32 +357,72 @@ namespace internal_lib {
         		LogElement* elem = q->getNextRead(); // read next element
         		if (!elem) break; // nul waiting so quit
 
+        		*offset++ = '\n'; // start from a new line
+
+
         		offset = fast_u64_to_str(elem->time_stamp, offset); // write the number into the buffer by pointer movement and allocating
         		*offset++ = ' '; // add a space to the where the write position was pointing to and then incrment the write pointer 
-        		offset = fast_u64_to_str(elem->string_token, offset); // add message id 
+        		offset = fast_u64_to_str(elem->log_identifier, offset); // add message id 
         		*offset++ = ' '; // add another space and move on.
+        		*offset++ = '\n'; // start from a new line
 
         		// handling the data object  here 
-        		switch (elem->component) {
-        			// handling market published data log object
-            		case ComponentId::MKT_DATA:
-                		 offset = fast_u64_to_str(elem->data_object.mkt.x, offset); // add the data object -> markety_data_publisher_log_object.x to it 
-                 		*offset++ = ' ';
+
+        		switch (elem->log_identifier) {
+
+					case 1:
+						// Order Arrives At Order Gateway ==> Identifier = 1 ===> Log Data = User Order 
+						offset = write_UserOrder(std::get<UserOrder>(elem->logData), offset);
                  		break;
-                 	// handling generic log object
-            		case ComponentId::SYSTEM_CORE:
-                	 	offset = fast_u64_to_str(elem->data_object.generic_data, offset);
-                	 	*offset++ = ' ';
+
+					case 2:
+						// Order Is Sent From Order GateWay To Matching Engine =====> Identifier = 2 ====> Log Data = LOBOrder
+						offset = write_LOBOrder(std::get<LOBOrder>(elem->logData), offset);
                  		break;
-                 	// handling LOB matchign log object
-                 	case ComponentId::LOB_ENGINE:
-                 		offset = fast_u64_to_str(elem->data_object.lob.y,offset);
-                 		*offset++ = ' ';
+
+					case 3:
+						// Order Arrived At Matching Engine ====> Identifier = 3 ====> Log Data = LOBOrder
+						offset = write_LOBOrder(std::get<LOBOrder>(elem->logData), offset);
                  		break;
-                 	// handling order gateway log object
-                 	case ComponentId::ORDER_GATEWAY:
-                 		offset = fast_u64_to_str(elem->data_object.ogw.z,offset);
-                 		*offset++ = ' ';
+
+					case 4:
+						// Order Aggressive Matched ====> Identifier = 4 ====> Log Data = LOBOrder
+						offset = write_LOBOrder(std::get<LOBOrder>(elem->logData), offset);
+                 		break;
+
+					case 5:
+						// Order Created In LOB ====> Identifier = 5 ====> Log Data = LOBOrder
+						offset = write_LOBOrder(std::get<LOBOrder>(elem->logData), offset);
+                 		break;
+
+					case 6:
+						// Order Deleted In LOB ====> Identifier = 6 ====> Log Data = LOBOrder
+						offset = write_LOBOrder(std::get<LOBOrder>(elem->logData), offset);
+                 		break;
+
+					case 7:
+						// Order Quantity Update in LOB ====> Identifier = 7 ====> Log Data = LOBOrder
+						offset = write_LOBOrder(std::get<LOBOrder>(elem->logData), offset);
+                 		break;
+
+					case 8:
+						// Matching Engine Passed An Acknowledgement To Order Gateway====> Identifier = 8 ======> Log Data = LOBAcknowledgement
+						offset = write_LOBAcknowledgement(std::get<LOBAcknowledgement>(elem->logData), offset);
+                 		break;
+
+					case 9:
+						// Order Gateway Received An Acknowledgement ====> Identifier = 9 =====> Log Data = LOBAcknowledgement
+						offset = write_LOBAcknowledgement(std::get<LOBAcknowledgement>(elem->logData), offset);
+                 		break;
+
+					case 10:
+						// Order Gateway Sends An Acknowledgement To Sniper/Alpha ====> Identifier = 10 =====> Log Data = UserAcknowledgement
+						offset = write_UserAcknowledgement(std::get<UserAcknowledgement>(elem->logData), offset);
+                 		break;
+
+					case 11:
+						// Matching Engine Broadcasts A Incremental Change To Alpha/Sniper ====> Identifier = 11 ====> Log Data = BroadcastElement
+						offset = write_BroadcastElement(std::get<BroadcastElement>(elem->logData), offset);
                  		break;
         		}
         
@@ -219,6 +443,7 @@ namespace internal_lib {
 	    	return count > 0; // if read happened then return true;
 		}
 	};
+  
 }
 
 

@@ -82,6 +82,11 @@ namespace internal_lib {
         char side;            // 'B' or 'S'
         char status;          // The Result Code (See below)
 
+        // usable data - 18 bytes
+
+        // - padding of 14 bytes 
+        char pad[14];
+
         // STATUS CODES:
     	// 'N' = New Order Accepted  (Qty = Initial Size)
     	// 'U' = Update Accepted     (Qty = New Balance)
