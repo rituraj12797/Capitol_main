@@ -18,9 +18,9 @@ namespace internal_lib {
 
         internal_lib::LFQueue<internal_lib::LOBOrder>* LobOrderQueue; 
         internal_lib::LFQueue<internal_lib::LOBAcknowledgement>* LobAckQueue; 
-
         internal_lib::LFQueue<internal_lib::BroadcastElement>* BroadcastQueue; // we keep it only incremental, as snapshotting is cmplex logic.
         // need to create this structure in lob_structs.h
+        internal_lib::LFQueue<internal_lib::LogElement>* MatchhingEngineLogger; // use this to log files 
 
 
         internal_lib::LimitedOrderBook<true> BuyOrderBook; // it has it's Own LUT
@@ -33,7 +33,6 @@ namespace internal_lib {
         std::vector<uint64_t> Matching_Engine_Throughput; // time between 2 consecutive successful reads = true throughput
         uint64_t last_read_cycle = 0; // cycle stamp of previous successful read
 
-
         public : 
 
         MatchingEngine() = delete;
@@ -43,10 +42,12 @@ namespace internal_lib {
             size_t max_entries_per_price,
             LFQueue<internal_lib::LOBOrder>* req_q,
             LFQueue<internal_lib::LOBAcknowledgement>* ack_q, // Corrected type to LOBAcknowledgement
-            LFQueue<internal_lib::BroadcastElement>* brdcst_q // Corrected type to BroadcastElement
+            LFQueue<internal_lib::BroadcastElement>* brdcst_q, // Corrected type to BroadcastElement
+            internal_lib::LFQueue<internal_lib::LogElement>* metlq
         ) : LobOrderQueue(req_q),
             LobAckQueue(ack_q),
             BroadcastQueue(brdcst_q),
+            MatchhingEngineLogger(metlq),
 
             BuyOrderBook(max_price_ticks, max_entries_per_price),
             SellOrderBook(max_price_ticks, max_entries_per_price)
@@ -57,7 +58,7 @@ namespace internal_lib {
                 Tick_To_Trade_Time.reserve(11000);
                 Matching_Engine_Throughput.reserve(11000);
             } // empty body 
-
+  
 
         void matchingEngineLoop(std::atomic<bool>& start_matching_engine, std::atomic<bool>& terminate_engine) {
 
@@ -105,7 +106,25 @@ namespace internal_lib {
                 return ;
             } 
 
+
+
+
+            // ORDER ARIVED AT GATEWAY
             uint64_t arrived_at_lob = now_cycles(); // nanosecond timestamp when it got out of queue
+
+            auto write_log = MatchhingEngineLogger->getNextWrite();
+            // this should be a busy wait but since our test order < capacity this will work
+            
+            if(write_log != nullptr) {
+                // Order Arrived At Matching Engine ====> Identifier = 3 ====> Log Data = LOBOrder
+                
+                write_log->log_identifier = 3;
+                write_log->time_stamp = arrived_at_lob;
+                write_log->logData = *order;
+
+                MatchhingEngineLogger->updateWrite();
+            }
+
 
             Queue_Wait_Time.push_back(arrived_at_lob - order->out_cycle_count); // time it got out of queue - time ewhen this was pushed into the queue
 
@@ -151,12 +170,29 @@ namespace internal_lib {
 
             // add to LOB and transfer this even to Logger
             if(order.quantity > 0) {
+
+
                 if(is_buy) {
                     BuyOrderBook.createOrder(order);
                 } else {
                     SellOrderBook.createOrder(order);
                 }
 
+                uint64_t created_at = now_cycles(); // nanosecond timestamp when it got out of queue
+
+                auto write_log = MatchhingEngineLogger->getNextWrite();
+                // this should be a busy wait but since our test order < capacity this will work
+            
+                if(write_log != nullptr) {
+                    // Order Created In LOB ====> Identifier = 5 ====> Log Data = LOBOrder
+                    
+                    write_log->log_identifier = 5;
+                    write_log->time_stamp = created_at;
+                    write_log->logData = order;
+
+                    MatchhingEngineLogger->updateWrite();
+                }
+                
                 sendIncrementalChange(order.system_id, order.price, order.quantity, 'N', is_buy ? 'B' : 'S');
                 
                 if (order.trader_id == 1) {
@@ -207,6 +243,21 @@ namespace internal_lib {
                     SellOrderBook.updateOrderQuantity(order);
                 }
 
+                uint64_t updated_at = now_cycles(); 
+
+                auto write_log = MatchhingEngineLogger->getNextWrite();
+                // this should be a busy wait but since our test order < capacity this will work
+            
+                if(write_log != nullptr) {
+	                // Order Quantity Update in LOB ====> Identifier = 7 ====> Log Data = LOBOrder
+                    
+                    write_log->log_identifier = 7;
+                    write_log->time_stamp = updated_at;
+                    write_log->logData = order;
+
+                    MatchhingEngineLogger->updateWrite();
+                }
+
                 // send incremental for quantity change
                 sendIncrementalChange(order.system_id, order.price, order.quantity, 'U', is_buy ? 'B' : 'S');
 
@@ -233,6 +284,23 @@ namespace internal_lib {
                 SellOrderBook.deleteOrder(order.system_id);
             }
 
+            uint64_t deleted_at = now_cycles(); 
+
+            auto write_log = MatchhingEngineLogger->getNextWrite();
+            // this should be a busy wait but since our test order < capacity this will work
+            
+            if(write_log != nullptr) {
+	            // Order Deleted In LOB ====> Identifier = 6 ====> Log Data = LOBOrder
+                
+                write_log->log_identifier = 6;
+                write_log->time_stamp = deleted_at;
+                write_log->logData = order;
+
+                MatchhingEngineLogger->updateWrite();
+            }
+
+
+            
             // send incremental for deletion
             sendIncrementalChange(order.system_id, order.price, order.quantity, 'D', is_buy ? 'B' : 'S');
 
@@ -321,6 +389,22 @@ namespace internal_lib {
 
                         // broadcast change
                         //  trades will be handles by user so he will upodated based on it and for the second passive order/ or the ordere which was not his he will get a increment request via delete function whic is below 
+
+                        // aggressive match occoured
+                        uint64_t aggressive_matched = now_cycles(); // nanosecond timestamp when it got out of queue
+
+                        auto write_log = MatchhingEngineLogger->getNextWrite();
+                        // this should be a busy wait but since our test order < capacity this will work
+            
+                        if(write_log != nullptr) {
+                           // Order Aggressive Matched ====> Identifier = 4 ====> Log Data = LOBOrder
+                            
+                            write_log->log_identifier = 4;
+                            write_log->time_stamp = aggressive_matched;
+                            write_log->logData = order;
+
+                            MatchhingEngineLogger->updateWrite();
+                        }
 
                         // acknowledge back for TRADER ID 1 only
                         if (order.trader_id == 1) {
@@ -466,6 +550,9 @@ namespace internal_lib {
              while(write_obj == nullptr) { 
                 write_obj = LobAckQueue->getNextWrite();
             }*/
+
+            uint64_t written_at;
+
             if(write_obj == nullptr) { 
                 write_obj = BroadcastQueue->getNextWrite();
             }
@@ -473,6 +560,22 @@ namespace internal_lib {
 
             // can now write to this point 
             *write_obj = be;
+
+            written_at = now_cycles();
+
+
+            auto write_log = MatchhingEngineLogger->getNextWrite();
+            // this should be a busy wait but since our test order < capacity this will work
+            
+            if(write_log != nullptr) {
+	            // Matching Engine Broadcasts A Incremental Change To Alpha/Sniper ====> Identifier = 11 ====> Log Data = BroadcastElement
+                write_log->log_identifier = 11;
+                write_log->time_stamp = written_at;
+                write_log->logData = be;
+
+                MatchhingEngineLogger->updateWrite();
+            }
+
 
             BroadcastQueue->updateWrite(); // update write index now 
 

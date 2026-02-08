@@ -4,6 +4,7 @@
 #include "simd_bplus_tree.h"
 #include "order_gateway_structs.h"
 #include "mempool.h" 
+#include "logger.h"
 #include "benchmark_utility.h"
 
 #define LIKELY(x) __builtin_expect(!!(x), 1)
@@ -26,6 +27,9 @@ namespace internal_lib {
 
             // Market Maker communication
             internal_lib::LFQueue<internal_lib::UserOrder>* MMOrderQueue; 
+
+            internal_lib::LFQueue<internal_lib::LogElement>* OrderGatewayLogger;
+
 
             internal_lib::SIMDBPlusTree<long long, int, 256> BPTree; 
             std::vector<long long> LUT; 
@@ -61,13 +65,16 @@ namespace internal_lib {
                      LFQueue<internal_lib::UserOrder>* soq, 
                      LFQueue<internal_lib::UserAcknowledgement>* saq, 
                      LFQueue<internal_lib::UserOrder>* mmoq, 
-                     LFQueue<internal_lib::LOBOrder>* loq) 
+                     LFQueue<internal_lib::LOBOrder>* loq,
+                     LFQueue<internal_lib::LogElement>* ogtlq
+                     ) 
                     : 
                      LobAckQueue(laq),
                      SniperOrderQueue(soq),
                      SniperAckQueue(saq),
                      MMOrderQueue(mmoq),
-                     LobOrderQueue(loq)
+                     LobOrderQueue(loq),
+                     OrderGatewayLogger(ogtlq)
                       {
                 // initialize B+ Tree
 
@@ -117,18 +124,35 @@ namespace internal_lib {
                     
                         // take input from sniper
                         UserOrder* readOrder = SniperOrderQueue->getNextRead(); 
-
+                        
                         if(LIKELY(readOrder != nullptr)) {
-                            // testing
+                             // testing
+
+                             // Order Arrives At Order Gateway ==> Identifier = 1 ===> Log Data = User Order 
                             compiler_barrier();
                             uint64_t arrived_cc = now_cycles(); // serialized timestamp when it arrived
                             compiler_barrier();
 
+                             auto write_log = OrderGatewayLogger->getNextWrite();
+                             // this should be a busy wait but since our test order < capacity this will work
+            
+                             if(write_log != nullptr) {
+                            // Order Arrived At Order Gateway ====> Identifier = 1 ====> Log Data = User Order 
+                                write_log->log_identifier = 1;
+                                write_log->time_stamp = arrived_cc;
+                                write_log->logData = *readOrder;
+                                OrderGatewayLogger->updateWrite();
+                             }
+
+
+                            
                             int sys_id = GetOrAssignSystemId(readOrder->order_id, readOrder->req_type);
 
                             compiler_barrier();
                             uint64_t og_work_done = now_cycles(); // serialized timestamp when processing complete
                             compiler_barrier();
+
+
 
                             Order_Gateway_processing_Time.push_back(og_work_done - arrived_cc);
 
@@ -146,11 +170,26 @@ namespace internal_lib {
                                 writeSlot->trader_id = readOrder->trader_id; // sniper is 0
                                 writeSlot->out_cycle_count = now_cycles(); // the moment this was out from Order Gateway and pushed in LOBOrder queue
                             
+                               
+
+                                auto write_log = OrderGatewayLogger->getNextWrite();
+                                // this should be a busy wait but since our test order < capacity this will work
+            
+                                if(write_log != nullptr) {
+	                                // Order Is Sent From Order GateWay To Matching Engine =====> Identifier = 2 ====> Log Data = LOBOrder
+                                    
+                                    write_log->log_identifier = 2;
+                                    write_log->time_stamp = __rdtsc();
+                                    write_log->logData = *writeSlot;
+                                    OrderGatewayLogger->updateWrite();
+                                }
+
                                 LobOrderQueue->updateWrite();
                                 SniperOrderQueue->updateRead();
 
+
                                 // throttle: slow down ogw to match me consumption rate
-                                busy_spin_throttle();
+                                // busy_spin_throttle(); 
                             }
                         }
 
@@ -159,10 +198,23 @@ namespace internal_lib {
                         
                         if(LIKELY(readOrder != nullptr)) {
                         
+                        auto write_log = OrderGatewayLogger->getNextWrite();
+                                // this should be a busy wait but since our test order < capacity this will work
+            
+                            if(write_log != nullptr) {
+                                // Order Arrives At Order Gateway ==> Identifier = 1 ===> Log Data = User Order                                     
+                                
+                                write_log->log_identifier = 1;
+                                write_log->time_stamp = __rdtsc();
+                                write_log->logData = *readOrder;
+                                OrderGatewayLogger->updateWrite();
+                            }
+                            
                         LOBOrder* writeSlot = LobOrderQueue->getNextWrite();
                         
                         if(LIKELY(writeSlot != nullptr)) {
                             // zero copy write directly to buffer
+
                             writeSlot->arrived_cycle_count = now_cycles();
                             writeSlot->system_id = GetOrAssignSystemId(readOrder->order_id, readOrder->req_type);
                             writeSlot->order_type = readOrder->order_type;
@@ -170,9 +222,26 @@ namespace internal_lib {
                             writeSlot->price = readOrder->price;
                             writeSlot->req_type = readOrder->req_type;
                             writeSlot->trader_id = readOrder->trader_id;
+                            writeSlot->out_cycle_count = now_cycles(); // <--- BUG: this line was missing!
+
+                            
+                            
+
+                            auto write_log = OrderGatewayLogger->getNextWrite();
+                                // this should be a busy wait but since our test order < capacity this will work
+            
+                            if(write_log != nullptr) {
+	                            // Order Is Sent From Order GateWay To Matching Engine =====> Identifier = 2 ====> Log Data = LOBOrder
+                                
+                                write_log->log_identifier = 2;
+                                write_log->time_stamp = writeSlot->out_cycle_count;
+                                write_log->logData = *writeSlot;
+                                OrderGatewayLogger->updateWrite();
+                            }
                             
                             LobOrderQueue->updateWrite();
                             MMOrderQueue->updateRead();
+
                         }
                         }
 
@@ -180,16 +249,25 @@ namespace internal_lib {
                         LOBAcknowledgement* readAck = LobAckQueue->getNextRead();
                     
                         if(LIKELY(readAck != nullptr)) {
-                        
+                            
+                        // acknowledgement arrived at Order Gateway
+                    	// Order Gateway Received An Acknowledgement ====> Identifier = 9 =====> Log Data = LOBAcknowledgement
+                        auto write_log = OrderGatewayLogger->getNextWrite();
+                                // this should be a busy wait but since our test order < capacity this will work
+            
+                        if(write_log != nullptr) {
+	                        // Order Gateway Received An Acknowledgement ====> Identifier = 9 =====> Log Data = LOBAcknowledgement
+                            
+                            write_log->log_identifier = 9;
+                            write_log->time_stamp = __rdtsc();
+                            write_log->logData = *readAck;
+                            OrderGatewayLogger->updateWrite();
+                        }
                         // check who sent the order (sniper=0 or MM)
                         // change in architecture -------> acknowledgements will only be created and sent for Sniper, market maker is just responsible for filling in market traffic.
-                        LFQueue<UserAcknowledgement>* targetQueue;
-
-                        // if(readAck->traderId == 1) { // we will publish for Alpha engine so we can copmment out this if 
-
-                            targetQueue = SniperAckQueue; 
-                        
-                            UserAcknowledgement* writeAck = targetQueue->getNextWrite();
+                            
+                            
+                            UserAcknowledgement* writeAck = SniperAckQueue->getNextWrite();
                         
                             if(LIKELY(writeAck != nullptr)) {
                                 writeAck->order_id = SystemToOrderId(readAck->system_id);
@@ -199,7 +277,21 @@ namespace internal_lib {
                                 writeAck->side = readAck->side;
 
                                 // always a good practice to commit first and then only update read unless you have a strong durability mechanism.
-                                targetQueue->updateWrite();
+                                
+                                auto write_log = OrderGatewayLogger->getNextWrite();
+                                // this should be a busy wait but since our test order < capacity this will work
+            
+                                if(write_log != nullptr) {
+	                                // Order Gateway Received An Acknowledgement ====> Identifier = 9 =====> Log Data = LOBAcknowledgement
+                                    
+                                    write_log->log_identifier = 10;
+                                    write_log->time_stamp = __rdtsc();
+                                    write_log->logData = *writeAck;
+                                    OrderGatewayLogger->updateWrite();
+                                }
+                                
+                                    
+                                SniperAckQueue->updateWrite();
                                 LobAckQueue->updateRead();
                             }
                         // } 

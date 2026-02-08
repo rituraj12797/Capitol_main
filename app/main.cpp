@@ -5,6 +5,7 @@
 #include "order_gateway_structs.h"
 #include "thread_utils.h"
 #include "prewarmer.h"
+#include "logger.h"
 
 #include "../core/src/alpha_tester.cpp"
 #include "../core/src/order_gateway.cpp"
@@ -19,22 +20,25 @@ int main() {
 	internal_lib::LFQueue<internal_lib::LOBOrder> loq(1000000); // LOB Order queue
 	internal_lib::LFQueue<internal_lib::LOBAcknowledgement> laq(1000000); // LOB Acknowledgement Queue
 	internal_lib::LFQueue<internal_lib::BroadcastElement> bq(1000000); // broadcast queue
+	internal_lib::LFQueue<internal_lib::LogElement> metlq(1000000); // Matching Engine To Logger Queue
+	internal_lib::LFQueue<internal_lib::LogElement> ogtlq(1000000); // Order Gateway To Logger Queue
+
 
 	// a lf queue to denote one strem from market maker but since we have not written market maker right now we won't fill anything yet.
 	internal_lib::LFQueue<internal_lib::UserOrder> mmoq(100); // market maker order queue
 
-
-
-
-
 	// define ME
-	internal_lib::MatchingEngine matchingEngine(10000,400,&loq,&laq,&bq);
+	internal_lib::MatchingEngine matchingEngine(10000,400,&loq,&laq,&bq,&metlq);
 
 	// define OG
-	internal_lib::OrderGateway orderGateway(&laq, &soq, &saq, &mmoq, &loq);
+	internal_lib::OrderGateway orderGateway(&laq, &soq, &saq, &mmoq, &loq, &ogtlq);
 
 	// define alpha
 	internal_lib::AlphaServer alphaServer(&soq,&saq,&bq);
+
+	// define logger 
+	std::string file_path = "../log/event_logs.log";
+	internal_lib::Async_Logger logger(file_path,&metlq,&ogtlq);
 
 
 	// create atomic variables for these components to run and terminate on 
@@ -65,11 +69,18 @@ int main() {
         alphaServer.AlphaRun(start_alpha_server, terminate_alpha_server); 
     });
 
+	
+
 	//  prewarm: burn all cores for 100 seconds to force max turbo frequency
-	internal_lib::prewarm(100);
+	internal_lib::prewarm(50);
 
 	// set start = true one by one
 	std::this_thread::sleep_for(std::chrono::seconds(3));
+
+	// start the logger.
+	auto logger_thread = internal_lib::createAndStartThread(4,"Async Logger",[&](){
+		logger.run();
+	});
 
 	// start ME, start OG then start AlphaServer
 	std::cout<<"~~~~~~~~~~~~~~~~~~~~~ CAPITOL STARTED ~~~~~~~~~~~~~~~~~~~~~~~~~~~~` "<<"\n";
@@ -104,6 +115,11 @@ int main() {
 	delete matching_engine_thread;
 	delete order_gateway_thread;
 	delete alpha_server_thread;
+
+	// stop the logger thread - signal it to exit its while(running) loop
+	logger.stop();
+	logger_thread->join();
+	delete logger_thread;
 
 	std::cout<<"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ CLOSING CAPITOL ~~~~~~~~~~~~~~~~~~ \n";
 

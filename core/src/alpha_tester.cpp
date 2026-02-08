@@ -34,8 +34,9 @@ namespace internal_lib {
 				//  hogging
 
 				// fill testStore here with 10,000 order entries each with price between 110 to 150 and price is quantum osd 0.1 so it can be anythingx*0.1 which lies betwen 110 amd 150
-				
-				for (int i = 0; i < 10000; ++i) {
+
+				int num_orders = 1;
+				for (int i = 0; i < num_orders; ++i) {
     				internal_lib::UserOrder order;
     				// (150 - 110) / 0.1 = 400 steps. 
     				// rand() % 401 generates 0-400. 
