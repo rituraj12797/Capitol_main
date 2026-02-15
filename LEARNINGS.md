@@ -147,7 +147,7 @@ so we do this only but kind of at local level between producer and consumer thre
 
 
 13. Throttling- to make the Alpha Slow during benchmarking 
-14. ingress throttling - to make the Order gateway add some processing latency so that it becomes the biottle nech and hence the LKFqueue inside the system now won;t be choked only sniper queue will be choked and system will be like a free glide highway .
+14. ingress throttling - to make the Order gateway add some processing latency so that it becomes the bottle neck and hence the LKFqueue inside the system now won;t be choked only sniper queue will be choked and system will be like a free glide highway .
 
 
 proof 
